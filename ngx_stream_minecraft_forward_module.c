@@ -58,6 +58,25 @@ ngx_module_t ngx_stream_minecraft_forward_module = {
     NGX_MODULE_V1_PADDING                           /* No padding*/
 };
 
+static void *ngx_stream_minecraft_forward_module_create_srv_conf(ngx_conf_t *cf) {
+    ngx_stream_minecraft_forward_module_srv_conf_t *conf;
+    conf = ngx_pcalloc(cf->pool, sizeof(ngx_stream_minecraft_forward_module_srv_conf_t));
+    if (conf == NULL) {
+        return NULL;
+    }
+    conf->enabled = NGX_CONF_UNSET;
+    return conf;
+}
+
+static char *ngx_stream_minecraft_forward_module_merge_srv_conf(ngx_conf_t *cf, void *prev, void *curr) {
+    ngx_stream_minecraft_forward_module_srv_conf_t *parent = prev;
+    ngx_stream_minecraft_forward_module_srv_conf_t *current = curr;
+
+    ngx_conf_merge_value(current->enabled, parent->enabled, 0);
+
+    return NGX_CONF_OK;
+}
+
 ngx_int_t read_minecraft_varint(u_char *buf, u_int *byte_len) {
     ngx_int_t value = 0;
     ngx_int_t bit_pos = 0;
@@ -96,6 +115,17 @@ u_char *parse_packet_length(ngx_stream_session_t *s, ngx_stream_minecraft_forwar
     return bufpos;
 }
 
+u_char *parse_string_from_packet(ngx_pool_t *pool, u_char *bufpos, ngx_int_t len) {
+    u_char *rs;
+    rs = ngx_pcalloc(pool, (len + 1) * sizeof(u_char));
+    if (rs == NULL) {
+        return NULL;
+    }
+    ngx_memcpy(rs, bufpos, len);
+    rs[len] = '\0';
+    return rs;
+}
+
 /* UNTESTED */
 void create_minecraft_varint(u_char *result, ngx_int_t value) {
     if (result == NULL) {
@@ -126,25 +156,6 @@ u_char *ngx_create_minecraft_varint(ngx_pool_t *pool, ngx_int_t value) {
     u_char *varint = ngx_pcalloc(pool, sizeof(u_char) * 5);
     create_minecraft_varint(varint, value);
     return varint;
-}
-
-static void *ngx_stream_minecraft_forward_module_create_srv_conf(ngx_conf_t *cf) {
-    ngx_stream_minecraft_forward_module_srv_conf_t *conf;
-    conf = ngx_pcalloc(cf->pool, sizeof(ngx_stream_minecraft_forward_module_srv_conf_t));
-    if (conf == NULL) {
-        return NULL;
-    }
-    conf->enabled = NGX_CONF_UNSET;
-    return conf;
-}
-
-static char *ngx_stream_minecraft_forward_module_merge_srv_conf(ngx_conf_t *cf, void *prev, void *curr) {
-    ngx_stream_minecraft_forward_module_srv_conf_t *parent = prev;
-    ngx_stream_minecraft_forward_module_srv_conf_t *current = curr;
-
-    ngx_conf_merge_value(current->enabled, parent->enabled, 0);
-
-    return NGX_CONF_OK;
 }
 
 void destory_preread_ctx(ngx_stream_session_t *s) {
@@ -248,13 +259,10 @@ static ngx_int_t ngx_stream_minecraft_forward_module_handshake_preread(ngx_strea
         bufpos += byte_len;
 
         /* Change this later */
-        u_char *host_str;
-        host_str = ngx_pcalloc(c->pool, (prefix_len + 1) * sizeof(u_char));
+        u_char *host_str = parse_string_from_packet(c->pool, bufpos, prefix_len);
         if (host_str == NULL) {
             return echo_deny_connection(s);
         }
-        ngx_memcpy(host_str, bufpos, prefix_len);
-        host_str[prefix_len] = '\0';
         ngx_log_error(NGX_LOG_INFO, c->log, 0, "Remote hostname: %s", host_str);
         ngx_pfree(c->pool, host_str);
         host_str = NULL;
@@ -275,7 +283,7 @@ static ngx_int_t ngx_stream_minecraft_forward_module_handshake_preread(ngx_strea
         }
         ++bufpos;
     } else {
-        ngx_log_error(NGX_LOG_CRIT, c->log, 0, "Unknown phase case (%d), this should not happen at all", ctx->phase);
+        ngx_log_error(NGX_LOG_CRIT, c->log, 0, "Unknown or wrong phase case (%d) in handshake preread handler", ctx->phase);
         return echo_deny_connection(s);
     }
 
@@ -295,7 +303,7 @@ static ngx_int_t ngx_stream_minecraft_forward_module_loginstart_preread(ngx_stre
         return echo_deny_connection(s);
     }
     if (ctx->phase != 2) {
-        ngx_log_error(NGX_LOG_EMERG, c->log, 0, "Wrong phase in loginstart preread handler");
+        ngx_log_error(NGX_LOG_EMERG, c->log, 0, "Wrong phase (%d) in loginstart preread handler", ctx->phase);
         return echo_deny_connection(s);
     }
 
@@ -335,10 +343,10 @@ static ngx_int_t ngx_stream_minecraft_forward_module_loginstart_preread(ngx_stre
     bufpos += byte_len;
 
     /* Change this later */
-    u_char *username_str;
-    username_str = ngx_pcalloc(c->pool, (prefix_len + 1) * sizeof(u_char));
-    ngx_memcpy(username_str, bufpos, prefix_len);
-    username_str[prefix_len] = '\0';
+    u_char *username_str = parse_string_from_packet(c->pool, bufpos, prefix_len);
+    if (username_str == NULL) {
+        return echo_deny_connection(s);
+    }
     ngx_log_error(NGX_LOG_INFO, c->log, 0, "Username: %s", username_str);
     ngx_pfree(c->pool, username_str);
     username_str = NULL;
