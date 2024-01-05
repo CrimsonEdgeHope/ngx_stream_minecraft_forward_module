@@ -1,0 +1,14 @@
+ngx_addon_name=ngx_stream_minecraft_forward_module
+ngx_stream_addon_name=$ngx_addon_name
+
+if [ $STREAM = NO ]; then
+    echo "$ngx_stream_addon_name depends on stream module!"
+    exit 1
+fi
+
+STREAM_MODULES="$STREAM_MODULES $ngx_stream_addon_name"
+
+STREAM_MODULE_SRCS=" \
+$ngx_addon_dir/ngx_stream_minecraft_forward_module.c"
+
+NGX_ADDON_SRCS="$NGX_ADDON_SRCS $STREAM_MODULE_SRCS"
