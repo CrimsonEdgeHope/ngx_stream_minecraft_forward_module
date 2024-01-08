@@ -378,9 +378,34 @@ ngx_int_t ngx_stream_minecraft_forward_module_loginstart_preread(ngx_stream_sess
     /* Change this later */
     bufpos += prefix_len;
 
-    // In 1.20* protocols Minecraft (not always) brings up player UUID at this phase.
+    if (ctx->protocol_num >= 761) {
+        if (ctx->protocol_num <= 763) {
+            ++bufpos;
+        }
+        /* Change this later */
+        u_char *uuid = ngx_pcalloc(c->pool, 33 * sizeof(u_char));
+        for (int i = 0; i < 32; ++i) {
+            if (i % 2) {
+                uuid[i] = bufpos[i / 2] & (u_char)0x0F;
+            } else {
+                uuid[i] = (bufpos[i / 2] & (u_char)0xF0) >> 4;
+            }
+            if (uuid[i] <= 9) {
+                uuid[i] += '0';
+            } else if (uuid[i] >= 10 && uuid[i] <= 15) {
+                uuid[i] = 'a' + (uuid[i] - 10);
+            } else {
+                goto loginstart_preread_failure;
+            }
+        }
+        ngx_log_error(NGX_LOG_INFO, c->log, 0, "UUID: %s", uuid);
+        ngx_pfree(c->pool, uuid);
+        /* Change this later */
+        bufpos += 16;
+    }
 
     /* END */
+    ctx->pos = NULL;
     ctx->expected_packet_len = 0;
     ngx_log_debug0(NGX_LOG_DEBUG_STREAM, c->log, 0, "End of loginstart preread");
     return NGX_OK;
