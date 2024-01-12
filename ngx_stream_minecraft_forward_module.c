@@ -8,6 +8,9 @@ typedef struct {
     ngx_hash_init_t domain_map_init;
     ngx_hash_keys_arrays_t domain_map_keys;
 
+    size_t hash_max_size;
+    size_t hash_bucket_size;
+
     ngx_flag_t enabled;
 } ngx_stream_minecraft_forward_module_srv_conf_t;
 
@@ -30,7 +33,7 @@ typedef struct {
 ngx_stream_filter_pt ngx_stream_next_filter;
 
 static void *ngx_stream_minecraft_forward_module_create_srv_conf(ngx_conf_t *cf);
-static char *ngx_stream_minecraft_forward_module_merge_srv_conf(ngx_conf_t *cf, void *prev, void *curr);
+static char *ngx_stream_minecraft_forward_module_merge_srv_conf(ngx_conf_t *cf, void *prev, void *conf);
 
 static char *ngx_stream_minecraft_forward_module_srv_conf_minecraft_server_domain(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 
@@ -54,6 +57,18 @@ static ngx_command_t ngx_stream_minecraft_forward_module_directives[] = {
      ngx_stream_minecraft_forward_module_srv_conf_minecraft_server_domain,
      NGX_STREAM_SRV_CONF_OFFSET,
      offsetof(ngx_stream_minecraft_forward_module_srv_conf_t, domain_map),
+     NULL},
+    {ngx_string("minecraft_server_domain_hash_max_size"),
+     NGX_STREAM_MAIN_CONF | NGX_STREAM_SRV_CONF | NGX_CONF_TAKE1,
+     ngx_conf_set_size_slot,
+     NGX_STREAM_SRV_CONF_OFFSET,
+     offsetof(ngx_stream_minecraft_forward_module_srv_conf_t, hash_max_size),
+     NULL},
+    {ngx_string("minecraft_server_domain_hash_bucket_size"),
+     NGX_STREAM_MAIN_CONF | NGX_STREAM_SRV_CONF | NGX_CONF_TAKE1,
+     ngx_conf_set_size_slot,
+     NGX_STREAM_SRV_CONF_OFFSET,
+     offsetof(ngx_stream_minecraft_forward_module_srv_conf_t, hash_bucket_size),
      NULL},
     ngx_null_command /* END */
 };
@@ -94,13 +109,11 @@ static void *ngx_stream_minecraft_forward_module_create_srv_conf(ngx_conf_t *cf)
 
     conf->domain_map_init.hash = &conf->domain_map;
     conf->domain_map_init.key = ngx_hash_key_lc;
-
-    conf->domain_map_init.max_size = 512;
-    conf->domain_map_init.bucket_size = ngx_align(64, ngx_cacheline_size);
-
     conf->domain_map_init.name = "minecraft_server_domain";
     conf->domain_map_init.pool = cf->pool;
     conf->domain_map_init.temp_pool = cf->temp_pool;
+    conf->hash_max_size = NGX_CONF_UNSET_SIZE;
+    conf->hash_bucket_size = NGX_CONF_UNSET_SIZE;
     conf->domain_map_keys.pool = cf->pool;
     conf->domain_map_keys.temp_pool = cf->temp_pool;
     ngx_int_t rc = ngx_hash_keys_array_init(&conf->domain_map_keys, NGX_HASH_SMALL);
@@ -128,29 +141,36 @@ static char *ngx_stream_minecraft_forward_module_srv_conf_minecraft_server_domai
     return NGX_CONF_OK;
 }
 
-static char *ngx_stream_minecraft_forward_module_merge_srv_conf(ngx_conf_t *cf, void *prev, void *curr) {
-    ngx_stream_minecraft_forward_module_srv_conf_t *parent = prev;
-    ngx_stream_minecraft_forward_module_srv_conf_t *current = curr;
+static char *ngx_stream_minecraft_forward_module_merge_srv_conf(ngx_conf_t *cf, void *prev, void *conf) {
+    ngx_stream_minecraft_forward_module_srv_conf_t *pconf = prev;
+    ngx_stream_minecraft_forward_module_srv_conf_t *cconf = conf;
 
-    ngx_conf_merge_value(current->enabled, parent->enabled, 0);
+    ngx_conf_merge_value(cconf->enabled, pconf->enabled, 0);
+    ngx_conf_merge_size_value(pconf->hash_max_size, NGX_CONF_UNSET_SIZE, 512);
+    ngx_conf_merge_size_value(pconf->hash_bucket_size, NGX_CONF_UNSET_SIZE, 64);
+    ngx_conf_merge_size_value(cconf->hash_max_size, pconf->hash_max_size, 512);
+    ngx_conf_merge_size_value(cconf->hash_bucket_size, pconf->hash_bucket_size, 64);
+
+    pconf->domain_map_init.max_size = pconf->hash_max_size;
+    pconf->domain_map_init.bucket_size = ngx_align(pconf->hash_bucket_size, ngx_cacheline_size);
 
     // MERGE HASH TABLE
     ngx_int_t rc;
-    rc = ngx_hash_init(&parent->domain_map_init, parent->domain_map_keys.keys.elts, parent->domain_map_keys.keys.nelts);
+    rc = ngx_hash_init(&pconf->domain_map_init, pconf->domain_map_keys.keys.elts, pconf->domain_map_keys.keys.nelts);
     if (rc != NGX_OK) {
-        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "There's a problem initializing hash table in the main context");
+        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "There's a problem initializing hash table in stream context");
         return NGX_CONF_ERROR;
     }
 
-    for (ngx_uint_t i = 0; i < parent->domain_map_keys.keys.nelts; ++i) {
-        ngx_str_t *s = ((ngx_str_t *)parent->domain_map_keys.keys.elts) + i;
+    for (ngx_uint_t i = 0; i < pconf->domain_map_keys.keys.nelts; ++i) {
+        ngx_str_t *s = ((ngx_str_t *)pconf->domain_map_keys.keys.elts) + i;
         ngx_uint_t s_key = ngx_hash_key(s->data, s->len);
-        u_char *data = (u_char *)ngx_hash_find(&parent->domain_map, s_key, s->data, s->len);
+        u_char *data = (u_char *)ngx_hash_find(&pconf->domain_map, s_key, s->data, s->len);
         if (data == NULL) {
-            ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "A hash key previously in the main context becomes missing?! This should not happen");
+            ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "A hash key previously in stream context becomes missing?! This should not happen");
             return NGX_CONF_ERROR;
         }
-        rc = ngx_hash_add_key(&current->domain_map_keys, s, data, 0);
+        rc = ngx_hash_add_key(&cconf->domain_map_keys, s, data, 0);
         if (rc != NGX_OK) {
             if (rc == NGX_BUSY) {
                 ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "There's a problem merging hash table because of duplicate entry");
@@ -161,9 +181,11 @@ static char *ngx_stream_minecraft_forward_module_merge_srv_conf(ngx_conf_t *cf, 
         }
     }
 
-    rc = ngx_hash_init(&current->domain_map_init, current->domain_map_keys.keys.elts, current->domain_map_keys.keys.nelts);
+    cconf->domain_map_init.max_size = cconf->hash_max_size;
+    cconf->domain_map_init.bucket_size = ngx_align(cconf->hash_bucket_size, ngx_cacheline_size);
+    rc = ngx_hash_init(&cconf->domain_map_init, cconf->domain_map_keys.keys.elts, cconf->domain_map_keys.keys.nelts);
     if (rc != NGX_OK) {
-        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "There's a problem initializing hash table in current server context");
+        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "There's a problem initializing hash table in server context");
         return NGX_CONF_ERROR;
     }
 
