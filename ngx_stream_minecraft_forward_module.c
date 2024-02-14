@@ -15,18 +15,21 @@ typedef struct {
 } ngx_stream_minecraft_forward_module_srv_conf_t;
 
 typedef struct {
-    u_short phase; /* 0: Handshake, 1: Status, 2: Login start */
-    ngx_int_t protocol_num;
+    u_short phase;          /* 0: Handshake, 1: Status, 2: Login start */
+    ngx_int_t protocol_num; /* Minecraft Java protocol version number since Netty rewrite. */
+
     u_char *remote_hostname;
-    u_int remote_hostname_len;
+    size_t remote_hostname_len; /* String has preceding varint that indicates string length. */
     u_short remote_port;
 
-    u_int handshake_varint_byte_len;
-    u_int handshake_len;
+    size_t handshake_varint_byte_len; /* The varint itself, 5 at most. */
+    size_t handshake_len;             /* The handshake packet's length, derived from the preceding varint. */
+
+    size_t expected_packet_len; /* Derived from the preceding varint. */
+
     ngx_chain_t *filter_free;
     ngx_chain_t *filter_busy;
 
-    u_int expected_packet_len;
     u_char *pos;
 } ngx_stream_minecraft_forward_module_ctx_t;
 
@@ -44,6 +47,8 @@ ngx_int_t ngx_stream_minecraft_forward_module_loginstart_preread(ngx_stream_sess
 static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_session_t *s, ngx_chain_t *chain, ngx_uint_t from_upstream);
 
 static ngx_int_t ngx_stream_minecraft_forward_module_post_init(ngx_conf_t *cf);
+
+#define PORT_LEN sizeof(u_short)
 
 static ngx_command_t ngx_stream_minecraft_forward_module_directives[] = {
     {ngx_string("minecraft_server_forward"), /* Indicate a server block that proxies minecraft tcp connections. */
@@ -192,7 +197,20 @@ static char *ngx_stream_minecraft_forward_module_merge_srv_conf(ngx_conf_t *cf, 
     return NGX_CONF_OK;
 }
 
-ngx_int_t read_minecraft_varint(u_char *buf, u_int *byte_len) {
+/*
+ Varint is used a lot in Minecraft packet.
+ This function tries to parse varint and return actual integer value.
+ Result should be non-negative. In case anything, it would return -1 indicating failure.
+
+ \param *buf       Nginx buffer pointer.
+ \param *byte_len  size_t pointer that stores the length of varint bytes. Optional, pass NULL if no need.
+
+ \returns Actual int value represented by the varint. If failure, -1.
+*/
+ngx_int_t read_minecraft_varint(u_char *buf, size_t *byte_len) {
+    if (buf == NULL) {
+        return -1;
+    }
     ngx_int_t value = 0;
     ngx_int_t bit_pos = 0;
     u_char *byte = buf;
@@ -210,14 +228,37 @@ ngx_int_t read_minecraft_varint(u_char *buf, u_int *byte_len) {
 
         ++byte;
     }
+
+    if (value < 0) {
+        return -1;
+    }
+
     if (byte_len != NULL) {
         *byte_len = byte - buf + 1;
     }
     return value;
 }
 
-u_char *parse_packet_length(ngx_stream_session_t *s, ngx_stream_minecraft_forward_module_ctx_t *ctx, u_char *bufpos, u_int *varint_byte_len, ngx_int_t *packet_len) {
-    if (varint_byte_len == NULL || packet_len == NULL) {
+/*
+ Modern Minecraft Java protocol packet has a preceding varint that indicates the whole packet's length (not including varint bytes themselves, which's often confusing).
+ This function parses varint and retrieve actual packet length, to instruct the proxy to expect a fully transmitted packet before prereading and filtering.
+
+ \param *s                Nginx stream session object pointer.
+ \param *bufpos           Nginx buffer pointer.
+ \param *varint_byte_len  size_t pointer that stores the length of varint bytes.
+ \param *packet_len       size_t pointer that stores the actual packet length. (Desired result)
+
+ \returns Nginx buffer pointer that passes over the parsed varint bytes. If failure, NULL.
+*/
+u_char *parse_packet_length(ngx_stream_session_t *s, u_char *bufpos, size_t *varint_byte_len, size_t *packet_len) {
+    if (s == NULL) {
+        return NULL;
+    }
+
+    ngx_stream_minecraft_forward_module_ctx_t *ctx;
+    ctx = ngx_stream_get_module_ctx(s, ngx_stream_minecraft_forward_module);
+
+    if (ctx == NULL || bufpos == NULL || varint_byte_len == NULL || packet_len == NULL) {
         return NULL;
     }
 
@@ -236,9 +277,22 @@ u_char *parse_packet_length(ngx_stream_session_t *s, ngx_stream_minecraft_forwar
     return bufpos;
 }
 
-u_char *parse_string_from_packet(ngx_pool_t *pool, u_char *bufpos, ngx_int_t len) {
+/*
+ String follows varint. Retrieve a string and store in an unsigned char array.
+ The char array's memory is allocated from the nginx connection object's memory pool.
+
+ \param *c       Nginx connection object pointer.
+ \param *bufpos  Nginx buffer pointer.
+ \param len      String length.
+
+ \returns Pointer to an unsigned char array that stores string. If failure, NULL.
+*/
+u_char *parse_string_from_packet(ngx_connection_t *c, u_char *bufpos, size_t len) {
+    if (c == NULL || bufpos == NULL) {
+        return NULL;
+    }
     u_char *rs;
-    rs = ngx_pcalloc(pool, (len + 1) * sizeof(u_char));
+    rs = ngx_pcalloc(c->pool, (len + 1) * sizeof(u_char));
     if (rs == NULL) {
         return NULL;
     }
@@ -247,12 +301,22 @@ u_char *parse_string_from_packet(ngx_pool_t *pool, u_char *bufpos, ngx_int_t len
     return rs;
 }
 
-u_char *create_minecraft_varint(ngx_pool_t *pool, ngx_int_t value, u_int *byte_len) {
-    if (pool == NULL || value < 0) {
+/*
+ Convert an integer value to varint bytes and store in an unsigned char array.
+ The char array's memory is allocated from the nginx connection object's memory pool.
+
+ \param *c         Nginx connection object pointer.
+ \param value      Integer to be converted. Must be non-negative.
+ \param *byte_len  size_t pointer that stores the length of varint bytes. Optional, pass NULL if no need.
+
+ \returns Pointer to an unsigned char array that stores varint. If failure, NULL.
+*/
+u_char *create_minecraft_varint(ngx_connection_t *c, ngx_int_t value, size_t *byte_len) {
+    if (c == NULL || value < 0) {
         return NULL;
     }
 
-    u_char *varint = ngx_pcalloc(pool, sizeof(u_char) * 5);
+    u_char *varint = ngx_pcalloc(c->pool, sizeof(u_char) * 5);
     if (varint == NULL) {
         return NULL;
     }
@@ -304,7 +368,7 @@ static ngx_int_t ngx_stream_minecraft_forward_module_preread(ngx_stream_session_
 
 ngx_int_t ngx_stream_minecraft_forward_module_handshake_preread(ngx_stream_session_t *s) {
     ngx_connection_t *c = s->connection;
-    c->log->action = "prereading packet";
+    c->log->action = "prereading minecraft packet";
     if (c->type != SOCK_STREAM) {
         return NGX_DECLINED;
     }
@@ -344,14 +408,14 @@ ngx_int_t ngx_stream_minecraft_forward_module_handshake_preread(ngx_stream_sessi
         goto handshake_preread_failure;
     }
 
-    u_int byte_len = 0;
-    ngx_int_t prefix_len = 0;
-    bufpos = parse_packet_length(s, ctx, bufpos, &byte_len, &prefix_len);
+    size_t byte_len = 0;
+    size_t prefix_len = 0;
+    bufpos = parse_packet_length(s, bufpos, &byte_len, &prefix_len);
     if (bufpos == NULL) {
         goto handshake_preread_failure;
     }
 
-    if (buflast - bufpos < ctx->expected_packet_len) {
+    if (buflast - bufpos < (long long int) ctx->expected_packet_len) {
         return NGX_AGAIN;
     }
 
@@ -382,7 +446,7 @@ ngx_int_t ngx_stream_minecraft_forward_module_handshake_preread(ngx_stream_sessi
         }
         bufpos += byte_len;
 
-        u_char *hostname_str = parse_string_from_packet(c->pool, bufpos, prefix_len);
+        u_char *hostname_str = parse_string_from_packet(c, bufpos, prefix_len);
         if (hostname_str == NULL) {
             goto handshake_preread_failure;
         }
@@ -394,7 +458,7 @@ ngx_int_t ngx_stream_minecraft_forward_module_handshake_preread(ngx_stream_sessi
         ctx->remote_port |= (bufpos[0] << 8);
         ctx->remote_port |= bufpos[1];
 
-        bufpos += sizeof(u_short); /* Port */
+        bufpos += PORT_LEN; /* Port */
 
         if (bufpos[0] == (u_char)'\1') {
             ngx_log_error(NGX_LOG_INFO, c->log, 0, "Next state: Status");
@@ -432,7 +496,9 @@ ngx_int_t ngx_stream_minecraft_forward_module_loginstart_preread(ngx_stream_sess
         goto loginstart_preread_failure;
     }
     if (ctx->phase != 2) {
-        ngx_log_error(NGX_LOG_WARN, c->log, 0, "Wrong phase (%d) in loginstart preread handler", ctx->phase);
+        if (ctx->phase != 1) {
+            ngx_log_error(NGX_LOG_WARN, c->log, 0, "Wrong phase (%d) in loginstart preread handler", ctx->phase);
+        }
         goto loginstart_preread_failure;
     }
 
@@ -443,14 +509,14 @@ ngx_int_t ngx_stream_minecraft_forward_module_loginstart_preread(ngx_stream_sess
         return NGX_AGAIN;
     }
 
-    u_int byte_len = 0;
-    ngx_int_t prefix_len = 0;
-    bufpos = parse_packet_length(s, ctx, bufpos, &byte_len, &prefix_len);
+    size_t byte_len = 0;
+    size_t prefix_len = 0;
+    bufpos = parse_packet_length(s, bufpos, &byte_len, &prefix_len);
     if (bufpos == NULL) {
         goto loginstart_preread_failure;
     }
 
-    if (buflast - bufpos < ctx->expected_packet_len) {
+    if (buflast - bufpos < (long long int) ctx->expected_packet_len) {
         return NGX_AGAIN;
     }
 
@@ -472,7 +538,7 @@ ngx_int_t ngx_stream_minecraft_forward_module_loginstart_preread(ngx_stream_sess
     bufpos += byte_len;
 
     /* Change this later */
-    u_char *username_str = parse_string_from_packet(c->pool, bufpos, prefix_len);
+    u_char *username_str = parse_string_from_packet(c, bufpos, prefix_len);
     if (username_str == NULL) {
         goto loginstart_preread_failure;
     }
@@ -519,7 +585,7 @@ loginstart_preread_failure:
     return NGX_ERROR;
 }
 
-u_char *get_new_hostname_str(ngx_stream_minecraft_forward_module_srv_conf_t *sconf, u_char *old_str, u_int old_str_len) {
+u_char *get_new_hostname_str(ngx_stream_minecraft_forward_module_srv_conf_t *sconf, u_char *old_str, size_t old_str_len) {
     if (sconf == NULL || old_str == NULL) {
         return NULL;
     }
@@ -530,10 +596,12 @@ u_char *get_new_hostname_str(ngx_stream_minecraft_forward_module_srv_conf_t *sco
 
 static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_session_t *s, ngx_chain_t *chain, ngx_uint_t from_upstream) {
     ngx_connection_t *c = s->connection;
-    c->log->action = "filtering and forwarding new login packet";
     if (c->type != SOCK_STREAM || from_upstream || chain == NULL) {
         return ngx_stream_next_filter(s, chain, from_upstream);
     }
+
+    c->log->action = "filtering and forwarding new login packet";
+
     ngx_stream_minecraft_forward_module_ctx_t *ctx;
     ctx = ngx_stream_get_module_ctx(s, ngx_stream_minecraft_forward_module);
     if (ctx == NULL) {
@@ -546,14 +614,14 @@ static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_s
 
     u_char *new_hostname_str = NULL;
     u_char *new_hostname_varint_bytes = NULL;
-    u_int new_hostname_varint_byte_len = 0;
+    size_t new_hostname_varint_byte_len = 0;
     ngx_chain_t *chain_point = NULL;
-    u_int protocol_varint_byte_len = 0;
-    u_char *protocol_num_varint = create_minecraft_varint(c->pool, ctx->protocol_num, &protocol_varint_byte_len);
+    size_t protocol_varint_byte_len = 0;
+    u_char *protocol_num_varint = create_minecraft_varint(c, ctx->protocol_num, &protocol_varint_byte_len);
     if (protocol_num_varint == NULL) {
         goto filter_failure;
     }
-    u_int new_hostname_str_len = 0;
+    size_t new_hostname_str_len = 0;
 
     new_hostname_str = get_new_hostname_str(ngx_stream_get_module_srv_conf(s, ngx_stream_minecraft_forward_module), ctx->remote_hostname, ctx->remote_hostname_len);
     if (new_hostname_str == NULL) {
@@ -561,27 +629,27 @@ static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_s
     }
     new_hostname_str_len = ngx_strlen(new_hostname_str);
     ngx_log_error(NGX_LOG_INFO, c->log, 0, "New hostname string: %s", new_hostname_str);
-    new_hostname_varint_bytes = create_minecraft_varint(c->pool, new_hostname_str_len, &new_hostname_varint_byte_len);
+    new_hostname_varint_bytes = create_minecraft_varint(c, new_hostname_str_len, &new_hostname_varint_byte_len);
     if (new_hostname_str_len <= 0 || new_hostname_varint_bytes == NULL) {
         goto filter_failure;
     }
 
     // https://wiki.vg/Protocol#Handshake
     // Packet id, Protocol Version varint, Prefixed string (Length varint + content), Server port, Next state.
-    u_int new_handshake_len = 1 + protocol_varint_byte_len + new_hostname_varint_byte_len + new_hostname_str_len + sizeof(u_short) + 1;
+    size_t new_handshake_len = 1 + protocol_varint_byte_len + new_hostname_varint_byte_len + new_hostname_str_len + PORT_LEN + 1;
 
     // The whole packet is prefixed by a total length in varint.
-    u_int new_handshake_varint_byte_len;
-    u_char *new_handshake_varint_byte = create_minecraft_varint(c->pool, new_handshake_len, &new_handshake_varint_byte_len);
+    size_t new_handshake_varint_byte_len;
+    u_char *new_handshake_varint_byte = create_minecraft_varint(c, new_handshake_len, &new_handshake_varint_byte_len);
 
-    u_int old_handshake_len = ctx->handshake_varint_byte_len + ctx->handshake_len;
+    size_t old_handshake_len = ctx->handshake_varint_byte_len + ctx->handshake_len;
     new_handshake_len = new_handshake_varint_byte_len + new_handshake_len;
 
     ngx_chain_t *ln, *out, **ll, *append;
 
-    u_int in_buf_len;
+    size_t in_buf_len;
     ngx_int_t last = 0;
-    u_int gathered_len = 0;
+    size_t gathered_len = 0;
     for (ln = chain; ln != NULL; ln = ln->next) {
         in_buf_len = ngx_buf_size(ln->buf);
         gathered_len += in_buf_len;
@@ -599,7 +667,7 @@ static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_s
         }
     }
 
-    u_int split_remnant_len = gathered_len - old_handshake_len;
+    size_t split_remnant_len = gathered_len - old_handshake_len;
 
     ngx_chain_t *new_chain = ngx_chain_get_free_buf(c->pool, &ctx->filter_free);
     if (new_chain == NULL) {
@@ -616,7 +684,7 @@ static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_s
     new_chain->buf->memory = 1;
 
     new_chain->buf->last = ngx_cpymem(new_chain->buf->pos, new_handshake_varint_byte, new_handshake_varint_byte_len);
-    new_chain->buf->last = ngx_cpymem(new_chain->buf->last, (u_char *)"\0", 1);
+    new_chain->buf->last = ngx_cpymem(new_chain->buf->last, (u_char *)"\0", 1); // Packet id 0x00
     new_chain->buf->last = ngx_cpymem(new_chain->buf->last, protocol_num_varint, protocol_varint_byte_len);
     new_chain->buf->last = ngx_cpymem(new_chain->buf->last, new_hostname_varint_bytes, new_hostname_varint_byte_len);
     new_chain->buf->last = ngx_cpymem(new_chain->buf->last, new_hostname_str, new_hostname_str_len);
@@ -624,7 +692,7 @@ static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_s
     new_chain->buf->last = ngx_cpymem(new_chain->buf->last, &p, 1);
     p = ctx->remote_port & 0x00FF;
     new_chain->buf->last = ngx_cpymem(new_chain->buf->last, &p, 1);
-    new_chain->buf->last = ngx_cpymem(new_chain->buf->last, (u_char *)"\2", 1);
+    new_chain->buf->last = ngx_cpymem(new_chain->buf->last, (u_char *)"\2", 1); // Next state
 
     ngx_chain_t *split_chain = NULL;
     if (split_remnant_len > 0) {
