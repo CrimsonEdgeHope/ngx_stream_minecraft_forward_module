@@ -15,9 +15,11 @@ typedef struct {
 } ngx_stream_minecraft_forward_module_srv_conf_t;
 
 typedef struct {
-    u_short phase;          /* 0: Handshake, 1: Status, 2: Login start */
-    ngx_int_t protocol_num; /* Minecraft Java protocol version number since Netty rewrite. */
+    u_short phase;
+    u_short pass : 1;
+    u_short pinged : 1;
 
+    ngx_int_t protocol_num; /* Minecraft Java protocol version number since Netty rewrite. */
     u_char *remote_hostname;
     size_t remote_hostname_len; /* String has preceding varint that indicates string length. */
     u_short remote_port;
@@ -29,9 +31,11 @@ typedef struct {
 
     ngx_chain_t *filter_free;
     ngx_chain_t *filter_busy;
-
-    u_char *pos;
 } ngx_stream_minecraft_forward_module_ctx_t;
+
+#define HANDSHAKE_PHASE 1
+#define STATUS_PHASE 2
+#define LOGIN_START_PHASE 3
 
 ngx_stream_filter_pt ngx_stream_next_filter;
 
@@ -41,14 +45,13 @@ static char *ngx_stream_minecraft_forward_module_merge_srv_conf(ngx_conf_t *cf, 
 static char *ngx_stream_minecraft_forward_module_srv_conf_minecraft_server_domain(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 
 static ngx_int_t ngx_stream_minecraft_forward_module_preread(ngx_stream_session_t *s);
-ngx_int_t ngx_stream_minecraft_forward_module_handshake_preread(ngx_stream_session_t *s);
-ngx_int_t ngx_stream_minecraft_forward_module_loginstart_preread(ngx_stream_session_t *s);
 
 static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_session_t *s, ngx_chain_t *chain, ngx_uint_t from_upstream);
 
 static ngx_int_t ngx_stream_minecraft_forward_module_post_init(ngx_conf_t *cf);
 
 #define PORT_LEN sizeof(u_short)
+#define VARINT_MAX_BYTE_LEN 5
 
 static ngx_command_t ngx_stream_minecraft_forward_module_directives[] = {
     {ngx_string("minecraft_server_forward"), /* Indicate a server block that proxies minecraft tcp connections. */
@@ -208,13 +211,14 @@ static char *ngx_stream_minecraft_forward_module_merge_srv_conf(ngx_conf_t *cf, 
  \returns Actual int value represented by the varint. If failure, -1.
 */
 ngx_int_t read_minecraft_varint(u_char *buf, size_t *byte_len) {
-    if (buf == NULL) {
-        return -1;
-    }
     ngx_int_t value = 0;
     ngx_int_t bit_pos = 0;
     u_char *byte = buf;
     while (1) {
+        if (byte == NULL) {
+            return -1;
+        }
+
         value |= (*byte & 0x7F) << bit_pos;
         if ((*byte & 0x80) == 0) {
             break;
@@ -245,12 +249,11 @@ ngx_int_t read_minecraft_varint(u_char *buf, size_t *byte_len) {
 
  \param *s                Nginx stream session object pointer.
  \param *bufpos           Nginx buffer pointer.
- \param *varint_byte_len  size_t pointer that stores the length of varint bytes.
- \param *packet_len       size_t pointer that stores the actual packet length. (Desired result)
+ \param *varint_byte_len  size_t pointer that stores the length of varint bytes. Optional, pass NULL if no need.
 
  \returns Nginx buffer pointer that passes over the parsed varint bytes. If failure, NULL.
 */
-u_char *parse_packet_length(ngx_stream_session_t *s, u_char *bufpos, size_t *varint_byte_len, size_t *packet_len) {
+u_char *parse_packet_length(ngx_stream_session_t *s, u_char *bufpos, size_t *varint_byte_len) {
     if (s == NULL) {
         return NULL;
     }
@@ -258,20 +261,24 @@ u_char *parse_packet_length(ngx_stream_session_t *s, u_char *bufpos, size_t *var
     ngx_stream_minecraft_forward_module_ctx_t *ctx;
     ctx = ngx_stream_get_module_ctx(s, ngx_stream_minecraft_forward_module);
 
-    if (ctx == NULL || bufpos == NULL || varint_byte_len == NULL || packet_len == NULL) {
+    if (ctx == NULL || bufpos == NULL) {
         return NULL;
     }
 
-    if (ctx->expected_packet_len == 0) {
-        *packet_len = read_minecraft_varint(bufpos, varint_byte_len);
-        if (*packet_len <= 0) {
-            ngx_log_error(NGX_LOG_ALERT, s->connection->log, 0, "Cannot decode varint properly(%d). At this moment, a correct packet with content is expected", *packet_len);
-            return NULL;
-        }
-        ctx->expected_packet_len = *packet_len;
+    size_t vl;
+    size_t packet_len;
 
-        bufpos += *varint_byte_len;
-        ctx->pos = bufpos;
+    packet_len = read_minecraft_varint(bufpos, &vl);
+    if (packet_len <= 0) {
+        ngx_log_error(NGX_LOG_WARN, s->connection->log, 0, "Unexpected varint value (decoded: %d). At this moment, a correct packet with content is expected", packet_len);
+        return NULL;
+    }
+    ctx->expected_packet_len = packet_len;
+
+    bufpos += vl;
+
+    if (varint_byte_len != NULL) {
+        *varint_byte_len = vl;
     }
 
     return bufpos;
@@ -316,7 +323,7 @@ u_char *create_minecraft_varint(ngx_connection_t *c, ngx_int_t value, size_t *by
         return NULL;
     }
 
-    u_char *varint = ngx_pcalloc(c->pool, sizeof(u_char) * 5);
+    u_char *varint = ngx_pcalloc(c->pool, sizeof(u_char) * VARINT_MAX_BYTE_LEN);
     if (varint == NULL) {
         return NULL;
     }
@@ -363,10 +370,6 @@ ngx_int_t is_protocol_num_acceptable(ngx_stream_minecraft_forward_module_ctx_t *
 }
 
 static ngx_int_t ngx_stream_minecraft_forward_module_preread(ngx_stream_session_t *s) {
-    return ngx_stream_minecraft_forward_module_handshake_preread(s);
-}
-
-ngx_int_t ngx_stream_minecraft_forward_module_handshake_preread(ngx_stream_session_t *s) {
     ngx_connection_t *c = s->connection;
     c->log->action = "prereading minecraft packet";
     if (c->type != SOCK_STREAM) {
@@ -388,44 +391,46 @@ ngx_int_t ngx_stream_minecraft_forward_module_handshake_preread(ngx_stream_sessi
         if (ctx == NULL) {
             return NGX_ERROR;
         }
-        ctx->phase = 0;
-        ctx->pos = c->buffer->pos;
+        ctx->phase = HANDSHAKE_PHASE;
+        ctx->pass = 0;
+        ctx->pinged = 0;
         ngx_stream_set_ctx(s, ctx, ngx_stream_minecraft_forward_module);
     }
 
-    if (ctx->phase != 0) {
+    if (ctx->pass) {
         return NGX_OK;
     }
 
-    u_char *bufpos = ctx->pos;
+    u_char *bufpos = c->buffer->pos;
     u_char *buflast = c->buffer->last;
 
-    if (buflast - bufpos < 5) {
-        return NGX_AGAIN;
+    if (ctx->phase == HANDSHAKE_PHASE && bufpos[0] == (u_char)'\xFE') { // Legacy ping 0xFE
+        goto preread_failure;
     }
 
-    if (ctx->phase == 0 && bufpos[0] == (u_char)'\xFE') { // Legacy ping 0xFE
-        goto handshake_preread_failure;
-    }
+    ngx_log_debug0(NGX_LOG_DEBUG_STREAM, c->log, 0, "Start of minecraft handshake preread");
 
     size_t byte_len = 0;
     size_t prefix_len = 0;
-    bufpos = parse_packet_length(s, bufpos, &byte_len, &prefix_len);
+    bufpos = parse_packet_length(s, bufpos, &byte_len);
     if (bufpos == NULL) {
-        goto handshake_preread_failure;
+        if (buflast - c->buffer->pos < VARINT_MAX_BYTE_LEN) {
+            return NGX_AGAIN;
+        }
+        goto preread_failure;
     }
 
-    if (buflast - bufpos < (long long int) ctx->expected_packet_len) {
+    if (buflast - bufpos < (long long int)ctx->expected_packet_len) {
         return NGX_AGAIN;
     }
 
     if (bufpos[0] != (u_char)'\0') {
         ngx_log_error(NGX_LOG_ALERT, c->log, 0, "Unexpected packet id (%d), 0x00 is expected", bufpos[0]);
-        goto handshake_preread_failure;
+        goto preread_failure;
     }
     ++bufpos;
 
-    if (ctx->phase == 0) {
+    if (ctx->phase == HANDSHAKE_PHASE) {
         ctx->handshake_len = ctx->expected_packet_len;
         ctx->handshake_varint_byte_len = byte_len;
 
@@ -435,22 +440,23 @@ ngx_int_t ngx_stream_minecraft_forward_module_handshake_preread(ngx_stream_sessi
         ctx->protocol_num = protocol_num;
         if (is_protocol_num_acceptable(ctx) != NGX_OK) {
             ngx_log_error(NGX_LOG_WARN, c->log, 0, "Protocol number %d is not acceptable", protocol_num);
-            goto handshake_preread_failure;
+            goto preread_failure;
         }
         bufpos += byte_len;
 
         prefix_len = read_minecraft_varint(bufpos, &byte_len);
         if (prefix_len <= 0) {
             ngx_log_error(NGX_LOG_ALERT, c->log, 0, "There's a problem getting host string length (%d)", prefix_len);
-            goto handshake_preread_failure;
+            goto preread_failure;
         }
         bufpos += byte_len;
 
         u_char *hostname_str = parse_string_from_packet(c, bufpos, prefix_len);
         if (hostname_str == NULL) {
-            goto handshake_preread_failure;
+            ngx_log_error(NGX_LOG_ALERT, c->log, 0, "Cannot retrieve hostname");
+            goto preread_failure;
         }
-        ngx_log_error(NGX_LOG_INFO, c->log, 0, "Remote host: %s", hostname_str);
+        ngx_log_error(NGX_LOG_INFO, c->log, 0, "Remote hostname: %s", hostname_str);
         ctx->remote_hostname = hostname_str;
         ctx->remote_hostname_len = prefix_len;
         bufpos += prefix_len;
@@ -462,97 +468,74 @@ ngx_int_t ngx_stream_minecraft_forward_module_handshake_preread(ngx_stream_sessi
 
         if (bufpos[0] == (u_char)'\1') {
             ngx_log_error(NGX_LOG_INFO, c->log, 0, "Next state: Status");
-            ctx->phase = 1;
+            ctx->phase = STATUS_PHASE;
         } else if (bufpos[0] == (u_char)'\2') {
             ngx_log_error(NGX_LOG_INFO, c->log, 0, "Next state: Login");
-            ctx->phase = 2;
+            ctx->phase = LOGIN_START_PHASE;
         } else {
             ngx_log_error(NGX_LOG_EMERG, c->log, 0, "Unknown next state (%d)", bufpos[0]);
-            goto handshake_preread_failure;
+            goto preread_failure;
         }
         ++bufpos;
-    } else {
-        ngx_log_error(NGX_LOG_EMERG, c->log, 0, "Unknown or wrong phase case (%d) in handshake preread handler", ctx->phase);
-        goto handshake_preread_failure;
     }
 
-    ctx->pos = bufpos;
-    ctx->expected_packet_len = 0;
-    ngx_log_debug0(NGX_LOG_DEBUG_STREAM, c->log, 0, "End of handshake preread");
-    return ngx_stream_minecraft_forward_module_loginstart_preread(s);
-
-handshake_preread_failure:
-    remove_module_ctx(s);
-    return NGX_ERROR;
-}
-
-ngx_int_t ngx_stream_minecraft_forward_module_loginstart_preread(ngx_stream_session_t *s) {
-    ngx_connection_t *c = s->connection;
-
-    ngx_stream_minecraft_forward_module_ctx_t *ctx;
-    ctx = ngx_stream_get_module_ctx(s, ngx_stream_minecraft_forward_module);
-    if (ctx == NULL) {
-        ngx_log_error(NGX_LOG_EMERG, c->log, 0, "Contextual data missing in loginstart preread handler! This should not happen");
-        goto loginstart_preread_failure;
-    }
-    if (ctx->phase != 2) {
-        if (ctx->phase != 1) {
-            ngx_log_error(NGX_LOG_WARN, c->log, 0, "Wrong phase (%d) in loginstart preread handler", ctx->phase);
-        }
-        goto loginstart_preread_failure;
+    if (ctx->phase == STATUS_PHASE) {
+        ngx_log_debug0(NGX_LOG_DEBUG_STREAM, c->log, 0, "End of minecraft handshake preread");
+        ctx->pass = 1;
+        return NGX_OK;
     }
 
-    u_char *bufpos = ctx->pos;
-    u_char *buflast = c->buffer->last;
+    ngx_log_debug0(NGX_LOG_DEBUG_STREAM, c->log, 0, "Start of minecraft loginstart preread");
 
-    if (buflast - bufpos < 5) {
-        return NGX_AGAIN;
-    }
-
-    size_t byte_len = 0;
-    size_t prefix_len = 0;
-    bufpos = parse_packet_length(s, bufpos, &byte_len, &prefix_len);
+    u_char *h_pos = c->buffer->pos + ctx->handshake_len + ctx->handshake_varint_byte_len;
+    buflast = c->buffer->last;
+    bufpos = h_pos;
+    bufpos = parse_packet_length(s, bufpos, NULL);
     if (bufpos == NULL) {
-        goto loginstart_preread_failure;
+        if (buflast - h_pos < VARINT_MAX_BYTE_LEN) {
+            return NGX_AGAIN;
+        }
+        goto preread_failure;
     }
 
-    if (buflast - bufpos < (long long int) ctx->expected_packet_len) {
+    if (buflast - bufpos < (long long int)ctx->expected_packet_len) {
         return NGX_AGAIN;
     }
 
     if (bufpos[0] != (u_char)'\0') {
         ngx_log_error(NGX_LOG_ALERT, c->log, 0, "Unexpected packet id (%d), 0x00 is expected", bufpos[0]);
-        goto loginstart_preread_failure;
+        goto preread_failure;
     }
     ++bufpos;
 
     prefix_len = read_minecraft_varint(bufpos, &byte_len);
     if (prefix_len <= 0) {
         ngx_log_error(NGX_LOG_ALERT, c->log, 0, "There's a problem getting username string length (%d)", prefix_len);
-        goto loginstart_preread_failure;
+        goto preread_failure;
     }
     if (prefix_len > 16) {
         ngx_log_error(NGX_LOG_ALERT, c->log, 0, "Username too long (%d)", prefix_len);
-        goto loginstart_preread_failure;
+        goto preread_failure;
     }
     bufpos += byte_len;
 
-    /* Change this later */
+
     u_char *username_str = parse_string_from_packet(c, bufpos, prefix_len);
     if (username_str == NULL) {
-        goto loginstart_preread_failure;
+        ngx_log_error(NGX_LOG_ALERT, c->log, 0, "Cannot retrieve username");
+        goto preread_failure;
     }
     ngx_log_error(NGX_LOG_INFO, c->log, 0, "Username: %s", username_str);
     ngx_pfree(c->pool, username_str);
     username_str = NULL;
-    /* Change this later */
+
     bufpos += prefix_len;
 
     if (ctx->protocol_num >= 761) {
         if (ctx->protocol_num <= 763) {
             ++bufpos;
         }
-        /* Change this later */
+
         u_char *uuid = ngx_pcalloc(c->pool, 33 * sizeof(u_char));
         for (int i = 0; i < 32; ++i) {
             if (i % 2) {
@@ -565,23 +548,22 @@ ngx_int_t ngx_stream_minecraft_forward_module_loginstart_preread(ngx_stream_sess
             } else if (uuid[i] >= 10 && uuid[i] <= 15) {
                 uuid[i] = 'a' + (uuid[i] - 10);
             } else {
-                goto loginstart_preread_failure;
+                goto preread_failure;
             }
         }
         ngx_log_error(NGX_LOG_INFO, c->log, 0, "UUID: %s", uuid);
         ngx_pfree(c->pool, uuid);
-        /* Change this later */
+
         bufpos += 16;
     }
 
-    /* END */
-    ctx->pos = NULL;
-    ctx->expected_packet_len = 0;
-    ngx_log_debug0(NGX_LOG_DEBUG_STREAM, c->log, 0, "End of loginstart preread");
+    ctx->pass = 1;
+    ngx_log_debug0(NGX_LOG_DEBUG_STREAM, c->log, 0, "End of minecraft loginstart preread");
     return NGX_OK;
 
-loginstart_preread_failure:
+preread_failure:
     remove_module_ctx(s);
+    ngx_log_error(NGX_LOG_ERR, c->log, 0, "Preread failed");
     return NGX_ERROR;
 }
 
@@ -596,11 +578,10 @@ u_char *get_new_hostname_str(ngx_stream_minecraft_forward_module_srv_conf_t *sco
 
 static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_session_t *s, ngx_chain_t *chain, ngx_uint_t from_upstream) {
     ngx_connection_t *c = s->connection;
-    if (c->type != SOCK_STREAM || from_upstream || chain == NULL) {
+    ngx_int_t rc;
+    if (c->type != SOCK_STREAM || chain == NULL) {
         return ngx_stream_next_filter(s, chain, from_upstream);
     }
-
-    c->log->action = "filtering and forwarding new login packet";
 
     ngx_stream_minecraft_forward_module_ctx_t *ctx;
     ctx = ngx_stream_get_module_ctx(s, ngx_stream_minecraft_forward_module);
@@ -608,7 +589,36 @@ static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_s
         return ngx_stream_next_filter(s, chain, from_upstream);
     }
 
-    if (ctx->phase != 2) {
+    c->log->action = "passing ping response from upstream";
+    if (ctx->pinged) {
+        ngx_log_error(NGX_LOG_INFO, c->log, 0, "Closing connection because already used for pinging");
+        goto filter_failure;
+    }
+
+    if (from_upstream) {
+        if (ctx->phase == STATUS_PHASE) {
+            u_char *bufpos = parse_packet_length(s, c->buffer->pos, NULL);
+            if (bufpos == NULL) {
+                if (c->buffer->last - c->buffer->pos < VARINT_MAX_BYTE_LEN) {
+                    return NGX_AGAIN;
+                }
+                return NGX_ERROR;
+            }
+
+            if (c->buffer->last - bufpos < (long long int)ctx->expected_packet_len) {
+                return NGX_AGAIN;
+            }
+
+            if (!ctx->pinged) {
+                ctx->pinged = 1;
+            }
+        }
+        return ngx_stream_next_filter(s, chain, from_upstream);
+    }
+
+    c->log->action = "filtering and forwarding new login packet";
+
+    if (ctx->phase != LOGIN_START_PHASE) {
         return ngx_stream_next_filter(s, chain, from_upstream);
     }
 
@@ -645,11 +655,12 @@ static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_s
     size_t old_handshake_len = ctx->handshake_varint_byte_len + ctx->handshake_len;
     new_handshake_len = new_handshake_varint_byte_len + new_handshake_len;
 
-    ngx_chain_t *ln, *out, **ll, *append;
+    ngx_chain_t *ln;
 
     size_t in_buf_len;
     ngx_int_t last = 0;
     size_t gathered_len = 0;
+
     for (ln = chain; ln != NULL; ln = ln->next) {
         in_buf_len = ngx_buf_size(ln->buf);
         gathered_len += in_buf_len;
@@ -715,6 +726,8 @@ static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_s
 
     // https://nginx.org/en/docs/dev/development_guide.html#http_body_buffers_reuse
 
+    ngx_chain_t *out, **ll, *append;
+
     ll = &out;
 
     *ll = new_chain;
@@ -751,15 +764,11 @@ static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_s
     }
     chain_point = NULL;
 
-    ngx_int_t rc;
-
     rc = ngx_stream_next_filter(s, out, from_upstream);
     ngx_chain_update_chains(c->pool, &ctx->filter_free, &ctx->filter_busy, &out, (ngx_buf_tag_t)&ngx_stream_minecraft_forward_module);
 
-    if (rc == NGX_OK) {
-        ngx_log_debug0(NGX_LOG_DEBUG_STREAM, c->log, 0, "End of Minecraft-forward-module content filter");
-        remove_module_ctx(s);
-    }
+    ngx_log_debug0(NGX_LOG_DEBUG_STREAM, c->log, 0, "End of minecraft-forward-module content filter");
+    remove_module_ctx(s);
     return rc;
 
 filter_failure:
