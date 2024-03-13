@@ -9,6 +9,7 @@
 typedef struct {
     ngx_hash_t domain_map;
     ngx_hash_init_t domain_map_init;
+    /* Both `key` and `value` are `ngx_str_t *` */
     ngx_hash_keys_arrays_t domain_map_keys;
 
     size_t hash_max_size;
@@ -35,17 +36,6 @@ typedef struct {
     ngx_chain_t *filter_free;
     ngx_chain_t *filter_busy;
 } ngx_stream_minecraft_forward_module_ctx_t;
-
-void *ngx_stream_minecraft_forward_module_create_srv_conf(ngx_conf_t *cf);
-char *ngx_stream_minecraft_forward_module_merge_srv_conf(ngx_conf_t *cf, void *prev, void *conf);
-
-char *ngx_stream_minecraft_forward_module_srv_conf_minecraft_server_domain(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
-
-ngx_int_t ngx_stream_minecraft_forward_module_preread(ngx_stream_session_t *s);
-
-ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_session_t *s, ngx_chain_t *chain, ngx_uint_t from_upstream);
-
-ngx_int_t ngx_stream_minecraft_forward_module_post_init(ngx_conf_t *cf);
 
 extern ngx_module_t ngx_stream_minecraft_forward_module;
 
