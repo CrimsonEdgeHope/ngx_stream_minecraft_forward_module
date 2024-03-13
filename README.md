@@ -4,7 +4,8 @@ The `ngx_stream_minecraft_forward_module` module attempts to modify [Handshake](
 > [!IMPORTANT]
 > - This module relies on [stream module](https://nginx.org/en/docs/stream/ngx_stream_core_module.html).
 > - Only suitable for Minecraft Java protocol since Netty rewrite.
-> - This module has not been fully tested, only limited number of protocols will be accepted by the module.
+> - This module has not been fully tested.
+> - Nginx no earlier than 1.11.5 can pass compilation with this module.
 
 ## Compilation
 
@@ -23,23 +24,16 @@ make
   Default: `minecraft_server_forward  off;` <br/>
   Context: server <br/>
 
-  Indicate a server block that proxies Minecraft tcp connections.
+  Indicate a server block that proxies Minecraft Java tcp connections.
 
 > [!CAUTION]
-> Set to `on` only when upstream server points to a Minecraft Java server, otherwise proxy won't function properly.
-
-> [!NOTE]  
-> Pinging will not succeed, this is by design.
+> Set to `on` only when upstream server is a Minecraft Java server, otherwise proxy won't function properly.
 
 - Syntax: `minecraft_server_domain  domain_to_be_replaced  new_domain;` <br/>
   Default: None <br/>
   Context: stream, server <br/>
 
-  When a client starts logging process, replace client-provided server domain with a new domain before proxying to remote Minecraft server. <br/>
-  If no replacement is defined, reuse the provided domain before proxying.
-
-> [!WARNING]
-> Currently there's no additional literal checking on domain replacements, the module can't know whether domains defined in replacements are valid or not.
+  When a client starts logging process, replace client-provided server domain with a new domain before proxying to remote Minecraft server.
 
 > [!TIP]
 > Due to differences in Minecraft Java protocol specification, should there be a SRV record `_minecraft._tcp.a.domain.for.example.com` that points to `another.domain.for.example.com`, consider define two replacements:

@@ -2,6 +2,7 @@
 #include "ngx_stream_minecraft_forward_module.h"
 #include <ngx_config.h>
 #include <ngx_core.h>
+#include <ngx_regex.h>
 #include <ngx_stream.h>
 
 /*
@@ -154,4 +155,22 @@ u_char *create_minecraft_varint(ngx_connection_t *c, ngx_int_t value, size_t *by
         *byte_len = count;
     }
     return varint;
+}
+
+ngx_int_t srv_conf_validate_domain(ngx_str_t *str) {
+    if (!str) {
+        return NGX_ERROR;
+    }
+    if (!str->data || str->len > 253 || str->len <= 0) {
+        return NGX_ERROR;
+    }
+
+#if (NGX_PCRE)
+    if (!srv_domain_check_regex) {
+        return NGX_OK;
+    }
+    return ngx_regex_exec(srv_domain_check_regex, str, NULL, 0) >= 0 ? NGX_OK : NGX_ERROR;
+#else
+    return NGX_OK;
+#endif
 }

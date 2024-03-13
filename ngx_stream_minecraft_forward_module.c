@@ -110,7 +110,19 @@ char *ngx_stream_minecraft_forward_module_srv_conf_minecraft_server_domain(ngx_c
     values = cf->args->elts;
     ngx_int_t rc;
 
-    rc = ngx_hash_add_key(&sc->domain_map_keys, &values[1], &values[2], 0);
+    ngx_str_t *key = &values[1];
+    ngx_str_t *val = &values[2];
+
+    if (srv_conf_validate_domain(key) != NGX_OK) {
+        ngx_conf_log_error(NGX_LOG_CRIT, cf, 0, "Invalid entry: %s", key->data ? key->data : (u_char *)"*NULL*");
+        return NGX_CONF_ERROR;
+    }
+    if (srv_conf_validate_domain(val) != NGX_OK) {
+        ngx_conf_log_error(NGX_LOG_CRIT, cf, 0, "Invalid value: %s", val->data ? val->data : (u_char *)"*NULL*");
+        return NGX_CONF_ERROR;
+    }
+
+    rc = ngx_hash_add_key(&sc->domain_map_keys, key, val, NGX_HASH_READONLY_KEY);
     if (rc != NGX_OK) {
         ngx_conf_log_error(NGX_LOG_CRIT, cf, 0, "There's a problem adding hash key, possibly because of duplicate entry");
         return NGX_CONF_ERROR;
@@ -144,14 +156,18 @@ char *ngx_stream_minecraft_forward_module_merge_srv_conf(ngx_conf_t *cf, void *p
 
     // MERGE HASH TABLE
     for (ngx_uint_t i = 0; i < pconf->domain_map_keys.keys.nelts; ++i) {
-        ngx_str_t *key = ((ngx_str_t *)pconf->domain_map_keys.keys.elts) + i;
+        ngx_str_t *key = &((ngx_hash_key_t *)pconf->domain_map_keys.keys.elts + i)->key;
+
         ngx_uint_t hashed_key = ngx_hash_key(key->data, key->len);
-        ngx_str_t *data = (ngx_str_t *)ngx_hash_find(&pconf->domain_map, hashed_key, key->data, key->len);
-        if (data == NULL) {
+
+        ngx_str_t *val = (ngx_str_t *)ngx_hash_find(&pconf->domain_map, hashed_key, key->data, key->len);
+
+        if (val == NULL) {
             ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "A hash key previously in stream context becomes missing?! This should not happen");
             return NGX_CONF_ERROR;
         }
-        rc = ngx_hash_add_key(&cconf->domain_map_keys, key, data, 0);
+
+        rc = ngx_hash_add_key(&cconf->domain_map_keys, key, val, NGX_HASH_READONLY_KEY);
         if (rc != NGX_OK) {
             if (rc == NGX_BUSY) {
                 ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "There's a problem merging hash table because of duplicate entry");
@@ -391,11 +407,11 @@ preread_failure:
     return NGX_ERROR;
 }
 
-u_char *get_new_hostname_str(ngx_stream_minecraft_forward_module_srv_conf_t *sconf, u_char *old_str, size_t old_str_len) {
+ngx_str_t *get_new_hostname_str(ngx_stream_minecraft_forward_module_srv_conf_t *sconf, u_char *old_str, size_t old_str_len) {
     if (sconf == NULL || old_str == NULL) {
         return NULL;
     }
-    return ((ngx_str_t *)ngx_hash_find(&sconf->domain_map, ngx_hash_key(old_str, old_str_len), old_str, old_str_len))->data;
+    return (ngx_str_t *)ngx_hash_find(&sconf->domain_map, ngx_hash_key(old_str, old_str_len), old_str, old_str_len);
 }
 
 ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_session_t *s, ngx_chain_t *chain, ngx_uint_t from_upstream) {
@@ -455,7 +471,7 @@ ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_session_
     }
     size_t new_hostname_str_len = 0;
 
-    new_hostname_str = get_new_hostname_str(ngx_stream_get_module_srv_conf(s, ngx_stream_minecraft_forward_module), ctx->remote_hostname, ctx->remote_hostname_len);
+    new_hostname_str = get_new_hostname_str(ngx_stream_get_module_srv_conf(s, ngx_stream_minecraft_forward_module), ctx->remote_hostname, ctx->remote_hostname_len)->data;
     if (new_hostname_str == NULL) {
         new_hostname_str = ctx->remote_hostname;
     }
@@ -598,8 +614,33 @@ filter_failure:
     return NGX_ERROR;
 }
 
-ngx_int_t ngx_stream_minecraft_forward_module_pre_init(ngx_conf_t *cf) {
+#if (NGX_PCRE)
+ngx_regex_t *srv_domain_check_regex = NULL;
+#endif
 
+ngx_int_t ngx_stream_minecraft_forward_module_pre_init(ngx_conf_t *cf) {
+#if (NGX_PCRE)
+    ngx_regex_compile_t rc;
+
+    u_char errstr[NGX_MAX_CONF_ERRSTR];
+
+    ngx_str_t pattern = ngx_string("(?!^.{253,}$)(?:(^(?!-)[a-zA-Z0-9-]{1,63}(?<!-)$|(^((?!-)[a-zA-Z0-9-]{1,63}(?<!-)\\.)+[a-zA-Z]{2,6}$)))");
+
+    ngx_memzero(&rc, sizeof(ngx_regex_compile_t));
+
+    rc.pattern = pattern;
+    rc.pool = cf->pool;
+    rc.err.len = NGX_MAX_CONF_ERRSTR;
+    rc.err.data = errstr;
+    rc.options = NGX_REGEX_CASELESS;
+
+    if (ngx_regex_compile(&rc) != NGX_OK) {
+        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "%V", &rc.err);
+        return NGX_ERROR;
+    }
+
+    srv_domain_check_regex = rc.regex;
+#endif
     return NGX_OK;
 }
 

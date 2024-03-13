@@ -39,4 +39,8 @@ typedef struct {
 
 extern ngx_module_t ngx_stream_minecraft_forward_module;
 
+#if (NGX_PCRE)
+extern ngx_regex_t *srv_domain_check_regex;
+#endif
+
 #endif
