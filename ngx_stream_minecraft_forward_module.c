@@ -1,59 +1,16 @@
-#include <ngx_config.h>
-#include <ngx_core.h>
-#include <ngx_hash.h>
-#include <ngx_stream.h>
+#include "ngx_stream_minecraft_forward_module.h"
+#include "ngx_stream_minecraft_forward_module_utils.h"
+#include "ngx_stream_minecraft_protocol_numbers.h"
 
-typedef struct {
-    ngx_hash_t domain_map;
-    ngx_hash_init_t domain_map_init;
-    ngx_hash_keys_arrays_t domain_map_keys;
-
-    size_t hash_max_size;
-    size_t hash_bucket_size;
-
-    ngx_flag_t enabled;
-} ngx_stream_minecraft_forward_module_srv_conf_t;
-
-typedef struct {
-    u_short phase;
-    u_short pass : 1;
-    u_short pinged : 1;
-
-    ngx_int_t protocol_num; /* Minecraft Java protocol version number since Netty rewrite. */
-    u_char *remote_hostname;
-    size_t remote_hostname_len; /* String has preceding varint that indicates string length. */
-    u_short remote_port;
-
-    size_t handshake_varint_byte_len; /* The varint itself, 5 at most. */
-    size_t handshake_len;             /* The handshake packet's length, derived from the preceding varint. */
-
-    size_t expected_packet_len; /* Derived from the preceding varint. */
-
-    ngx_chain_t *filter_free;
-    ngx_chain_t *filter_busy;
-} ngx_stream_minecraft_forward_module_ctx_t;
+ngx_stream_filter_pt ngx_stream_next_filter;
 
 #define HANDSHAKE_PHASE 1
 #define STATUS_PHASE 2
 #define LOGIN_START_PHASE 3
 
-ngx_stream_filter_pt ngx_stream_next_filter;
-
-static void *ngx_stream_minecraft_forward_module_create_srv_conf(ngx_conf_t *cf);
-static char *ngx_stream_minecraft_forward_module_merge_srv_conf(ngx_conf_t *cf, void *prev, void *conf);
-
-static char *ngx_stream_minecraft_forward_module_srv_conf_minecraft_server_domain(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
-
-static ngx_int_t ngx_stream_minecraft_forward_module_preread(ngx_stream_session_t *s);
-
-static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_session_t *s, ngx_chain_t *chain, ngx_uint_t from_upstream);
-
-static ngx_int_t ngx_stream_minecraft_forward_module_post_init(ngx_conf_t *cf);
-
 #define PORT_LEN sizeof(u_short)
-#define VARINT_MAX_BYTE_LEN 5
 
-static ngx_command_t ngx_stream_minecraft_forward_module_directives[] = {
+ngx_command_t ngx_stream_minecraft_forward_module_directives[] = {
     {ngx_string("minecraft_server_forward"), /* Indicate a server block that proxies minecraft tcp connections. */
      NGX_STREAM_SRV_CONF | NGX_CONF_FLAG,
      ngx_conf_set_flag_slot,
@@ -107,7 +64,7 @@ ngx_module_t ngx_stream_minecraft_forward_module = {
     NGX_MODULE_V1_PADDING                           /* No padding*/
 };
 
-static void *ngx_stream_minecraft_forward_module_create_srv_conf(ngx_conf_t *cf) {
+void *ngx_stream_minecraft_forward_module_create_srv_conf(ngx_conf_t *cf) {
     ngx_stream_minecraft_forward_module_srv_conf_t *conf;
     conf = ngx_pcalloc(cf->pool, sizeof(ngx_stream_minecraft_forward_module_srv_conf_t));
     if (conf == NULL) {
@@ -133,7 +90,7 @@ static void *ngx_stream_minecraft_forward_module_create_srv_conf(ngx_conf_t *cf)
     return conf;
 }
 
-static char *ngx_stream_minecraft_forward_module_srv_conf_minecraft_server_domain(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+char *ngx_stream_minecraft_forward_module_srv_conf_minecraft_server_domain(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
     ngx_stream_minecraft_forward_module_srv_conf_t *sc = conf;
 
     ngx_str_t *values;
@@ -149,20 +106,22 @@ static char *ngx_stream_minecraft_forward_module_srv_conf_minecraft_server_domai
     return NGX_CONF_OK;
 }
 
-static char *ngx_stream_minecraft_forward_module_merge_srv_conf(ngx_conf_t *cf, void *prev, void *conf) {
+#define _DEFAULT_HASH_MAX_SIZE 512
+#define _DEFAULT_HASH_BUCKET_SIZE 64
+
+char *ngx_stream_minecraft_forward_module_merge_srv_conf(ngx_conf_t *cf, void *prev, void *conf) {
     ngx_stream_minecraft_forward_module_srv_conf_t *pconf = prev;
     ngx_stream_minecraft_forward_module_srv_conf_t *cconf = conf;
 
     ngx_conf_merge_value(cconf->enabled, pconf->enabled, 0);
-    ngx_conf_merge_size_value(pconf->hash_max_size, NGX_CONF_UNSET_SIZE, 512);
-    ngx_conf_merge_size_value(pconf->hash_bucket_size, NGX_CONF_UNSET_SIZE, 64);
-    ngx_conf_merge_size_value(cconf->hash_max_size, pconf->hash_max_size, 512);
-    ngx_conf_merge_size_value(cconf->hash_bucket_size, pconf->hash_bucket_size, 64);
+    ngx_conf_merge_size_value(pconf->hash_max_size, NGX_CONF_UNSET_SIZE, _DEFAULT_HASH_MAX_SIZE);
+    ngx_conf_merge_size_value(pconf->hash_bucket_size, NGX_CONF_UNSET_SIZE, _DEFAULT_HASH_BUCKET_SIZE);
+    ngx_conf_merge_size_value(cconf->hash_max_size, pconf->hash_max_size, _DEFAULT_HASH_MAX_SIZE);
+    ngx_conf_merge_size_value(cconf->hash_bucket_size, pconf->hash_bucket_size, _DEFAULT_HASH_BUCKET_SIZE);
 
     pconf->domain_map_init.max_size = pconf->hash_max_size;
     pconf->domain_map_init.bucket_size = ngx_align(pconf->hash_bucket_size, ngx_cacheline_size);
 
-    // MERGE HASH TABLE
     ngx_int_t rc;
     rc = ngx_hash_init(&pconf->domain_map_init, pconf->domain_map_keys.keys.elts, pconf->domain_map_keys.keys.nelts);
     if (rc != NGX_OK) {
@@ -170,6 +129,7 @@ static char *ngx_stream_minecraft_forward_module_merge_srv_conf(ngx_conf_t *cf, 
         return NGX_CONF_ERROR;
     }
 
+    // MERGE HASH TABLE
     for (ngx_uint_t i = 0; i < pconf->domain_map_keys.keys.nelts; ++i) {
         ngx_str_t *s = ((ngx_str_t *)pconf->domain_map_keys.keys.elts) + i;
         ngx_uint_t s_key = ngx_hash_key(s->data, s->len);
@@ -200,155 +160,6 @@ static char *ngx_stream_minecraft_forward_module_merge_srv_conf(ngx_conf_t *cf, 
     return NGX_CONF_OK;
 }
 
-/*
- Varint is used a lot in Minecraft packet.
- This function tries to parse varint and return actual integer value.
- Result should be non-negative. In case anything, it would return -1 indicating failure.
-
- \param *buf       Nginx buffer pointer.
- \param *byte_len  size_t pointer that stores the length of varint bytes. Optional, pass NULL if no need.
-
- \returns Actual int value represented by the varint. If failure, -1.
-*/
-ngx_int_t read_minecraft_varint(u_char *buf, size_t *byte_len) {
-    ngx_int_t value = 0;
-    ngx_int_t bit_pos = 0;
-    u_char *byte = buf;
-    while (1) {
-        if (byte == NULL) {
-            return -1;
-        }
-
-        value |= (*byte & 0x7F) << bit_pos;
-        if ((*byte & 0x80) == 0) {
-            break;
-        }
-
-        bit_pos += 7;
-
-        if (bit_pos >= 32) {
-            return -1;
-        }
-
-        ++byte;
-    }
-
-    if (value < 0) {
-        return -1;
-    }
-
-    if (byte_len != NULL) {
-        *byte_len = byte - buf + 1;
-    }
-    return value;
-}
-
-/*
- Modern Minecraft Java protocol packet has a preceding varint that indicates the whole packet's length (not including varint bytes themselves, which's often confusing).
- This function parses varint and retrieve actual packet length, to instruct the proxy to expect a fully transmitted packet before prereading and filtering.
-
- \param *s                Nginx stream session object pointer.
- \param *bufpos           Nginx buffer pointer.
- \param *varint_byte_len  size_t pointer that stores the length of varint bytes. Optional, pass NULL if no need.
-
- \returns Nginx buffer pointer that passes over the parsed varint bytes. If failure, NULL.
-*/
-u_char *parse_packet_length(ngx_stream_session_t *s, u_char *bufpos, size_t *varint_byte_len) {
-    if (s == NULL) {
-        return NULL;
-    }
-
-    ngx_stream_minecraft_forward_module_ctx_t *ctx;
-    ctx = ngx_stream_get_module_ctx(s, ngx_stream_minecraft_forward_module);
-
-    if (ctx == NULL || bufpos == NULL) {
-        return NULL;
-    }
-
-    size_t vl;
-    size_t packet_len;
-
-    packet_len = read_minecraft_varint(bufpos, &vl);
-    if (packet_len <= 0) {
-        ngx_log_error(NGX_LOG_WARN, s->connection->log, 0, "Unexpected varint value (decoded: %d). At this moment, a correct packet with content is expected", packet_len);
-        return NULL;
-    }
-    ctx->expected_packet_len = packet_len;
-
-    bufpos += vl;
-
-    if (varint_byte_len != NULL) {
-        *varint_byte_len = vl;
-    }
-
-    return bufpos;
-}
-
-/*
- String follows varint. Retrieve a string and store in an unsigned char array.
- The char array's memory is allocated from the nginx connection object's memory pool.
-
- \param *c       Nginx connection object pointer.
- \param *bufpos  Nginx buffer pointer.
- \param len      String length.
-
- \returns Pointer to an unsigned char array that stores string. If failure, NULL.
-*/
-u_char *parse_string_from_packet(ngx_connection_t *c, u_char *bufpos, size_t len) {
-    if (c == NULL || bufpos == NULL) {
-        return NULL;
-    }
-    u_char *rs;
-    rs = ngx_pcalloc(c->pool, (len + 1) * sizeof(u_char));
-    if (rs == NULL) {
-        return NULL;
-    }
-    ngx_memcpy(rs, bufpos, len);
-    rs[len] = '\0';
-    return rs;
-}
-
-/*
- Convert an integer value to varint bytes and store in an unsigned char array.
- The char array's memory is allocated from the nginx connection object's memory pool.
-
- \param *c         Nginx connection object pointer.
- \param value      Integer to be converted. Must be non-negative.
- \param *byte_len  size_t pointer that stores the length of varint bytes. Optional, pass NULL if no need.
-
- \returns Pointer to an unsigned char array that stores varint. If failure, NULL.
-*/
-u_char *create_minecraft_varint(ngx_connection_t *c, ngx_int_t value, size_t *byte_len) {
-    if (c == NULL || value < 0) {
-        return NULL;
-    }
-
-    u_char *varint = ngx_pcalloc(c->pool, sizeof(u_char) * VARINT_MAX_BYTE_LEN);
-    if (varint == NULL) {
-        return NULL;
-    }
-
-    ngx_int_t v = value;
-    u_int i = 0;
-    u_int msb = 0;
-    u_int count = 0;
-
-    while (v > 0) {
-        i = v & 0x7F;
-        msb = i & 0x40;
-        msb <<= 1;
-        i |= msb;
-        varint[count] = (u_char)i;
-        v >>= 7;
-        ++count;
-    }
-
-    if (byte_len != NULL) {
-        *byte_len = count;
-    }
-    return varint;
-}
-
 void remove_module_ctx(ngx_stream_session_t *s) {
     ngx_stream_set_ctx(s, NULL, ngx_stream_minecraft_forward_module);
 }
@@ -356,20 +167,20 @@ void remove_module_ctx(ngx_stream_session_t *s) {
 /* Assertion of all protocols referring to Minecraft Java since Netty rewrite */
 ngx_int_t is_protocol_num_acceptable(ngx_stream_minecraft_forward_module_ctx_t *ctx) {
     switch (ctx->protocol_num) {
-        case 765: // 1.20.3  1.20.4
-        case 764: // 1.20.2
-        case 763: // 1.20    1.20.1
-        case 762: // 1.19.4
-        case 761: // 1.19.3
-        case 760: // 1.19.1  1.19.2
-        case 759: // 1.19
+        case MINECRAFT_1_20_4:
+        case MINECRAFT_1_20_2:
+        case MINECRAFT_1_20_1:
+        case MINECRAFT_1_19_4:
+        case MINECRAFT_1_19_3:
+        case MINECRAFT_1_19_2:
+        case MINECRAFT_1_19:
             return NGX_OK;
         default:
             return NGX_ERROR;
     }
 }
 
-static ngx_int_t ngx_stream_minecraft_forward_module_preread(ngx_stream_session_t *s) {
+ngx_int_t ngx_stream_minecraft_forward_module_preread(ngx_stream_session_t *s) {
     ngx_connection_t *c = s->connection;
     c->log->action = "prereading minecraft packet";
     if (c->type != SOCK_STREAM) {
@@ -531,8 +342,8 @@ static ngx_int_t ngx_stream_minecraft_forward_module_preread(ngx_stream_session_
 
     bufpos += prefix_len;
 
-    if (ctx->protocol_num >= 761) {
-        if (ctx->protocol_num <= 763) {
+    if (ctx->protocol_num >= MINECRAFT_1_19_3) {
+        if (ctx->protocol_num <= MINECRAFT_1_20_1) {
             ++bufpos;
         }
 
@@ -576,7 +387,7 @@ u_char *get_new_hostname_str(ngx_stream_minecraft_forward_module_srv_conf_t *sco
     return data;
 }
 
-static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_session_t *s, ngx_chain_t *chain, ngx_uint_t from_upstream) {
+ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_session_t *s, ngx_chain_t *chain, ngx_uint_t from_upstream) {
     ngx_connection_t *c = s->connection;
     ngx_int_t rc;
     if (c->type != SOCK_STREAM || chain == NULL) {
@@ -776,7 +587,7 @@ filter_failure:
     return NGX_ERROR;
 }
 
-static ngx_int_t ngx_stream_minecraft_forward_module_post_init(ngx_conf_t *cf) {
+ngx_int_t ngx_stream_minecraft_forward_module_post_init(ngx_conf_t *cf) {
     ngx_stream_handler_pt *hp;
     ngx_stream_core_main_conf_t *cmcf;
 
