@@ -2,6 +2,7 @@
 #include <ngx_core.h>
 #include <ngx_hash.h>
 #include <ngx_stream.h>
+#include <ngx_string.h>
 
 #ifndef _NGX_STREAM_MINECRAFT_FORWARD_MODULE_H
 #define _NGX_STREAM_MINECRAFT_FORWARD_MODULE_H

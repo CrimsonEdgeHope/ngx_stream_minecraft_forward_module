@@ -31,7 +31,7 @@ static ngx_command_t ngx_stream_minecraft_forward_module_directives[] = {
      offsetof(ngx_stream_minecraft_forward_module_srv_conf_t, enabled),
      NULL},
     {ngx_string("minecraft_server_domain"),
-     NGX_STREAM_MAIN_CONF | NGX_STREAM_SRV_CONF | NGX_CONF_TAKE2,
+     NGX_STREAM_MAIN_CONF | NGX_STREAM_SRV_CONF | NGX_CONF_TAKE23,
      ngx_stream_minecraft_forward_module_srv_conf_minecraft_server_domain,
      NGX_STREAM_SRV_CONF_OFFSET,
      offsetof(ngx_stream_minecraft_forward_module_srv_conf_t, domain_map),
@@ -113,13 +113,21 @@ static char *ngx_stream_minecraft_forward_module_srv_conf_minecraft_server_domai
     ngx_str_t *key = &values[1];
     ngx_str_t *val = &values[2];
 
-    if (srv_conf_validate_domain(key) != NGX_OK) {
-        ngx_conf_log_error(NGX_LOG_CRIT, cf, 0, "Invalid entry: %s", key->data ? key->data : (u_char *)"*NULL*");
-        return NGX_CONF_ERROR;
+    ngx_flag_t pass = 0;
+    if (cf->args->nelts >= 3 + 1) {
+        if (ngx_strcmp(values[3].data, "arbitrary") == 0) {
+            pass = 1;
+        }
     }
-    if (srv_conf_validate_domain(val) != NGX_OK) {
-        ngx_conf_log_error(NGX_LOG_CRIT, cf, 0, "Invalid value: %s", val->data ? val->data : (u_char *)"*NULL*");
-        return NGX_CONF_ERROR;
+    if (!pass) {
+        if (srv_conf_validate_domain(key) != NGX_OK) {
+            ngx_conf_log_error(NGX_LOG_CRIT, cf, 0, "Invalid entry: %s", key->data ? key->data : (u_char *)"*NULL*");
+            return NGX_CONF_ERROR;
+        }
+        if (srv_conf_validate_domain(val) != NGX_OK) {
+            ngx_conf_log_error(NGX_LOG_CRIT, cf, 0, "Invalid value: %s", val->data ? val->data : (u_char *)"*NULL*");
+            return NGX_CONF_ERROR;
+        }
     }
 
     rc = ngx_hash_add_key(&sc->domain_map_keys, key, val, NGX_HASH_READONLY_KEY);
