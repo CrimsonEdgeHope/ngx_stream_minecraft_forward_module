@@ -20,7 +20,7 @@ typedef struct {
 
 typedef struct {
     u_short phase;
-    u_short pass : 1;
+    u_short preread_pass : 1;
     u_short pinged : 1;
 
     ngx_int_t protocol_num; /* Minecraft Java protocol version number since Netty rewrite. */
@@ -40,7 +40,7 @@ typedef struct {
 extern ngx_module_t ngx_stream_minecraft_forward_module;
 
 #if (NGX_PCRE)
-extern ngx_regex_t *srv_domain_check_regex;
+extern ngx_regex_t *ngx_stream_minecraft_forward_module_srv_domain_check_regex;
 #endif
 
 #endif

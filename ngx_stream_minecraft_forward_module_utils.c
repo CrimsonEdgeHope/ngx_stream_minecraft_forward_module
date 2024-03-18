@@ -166,10 +166,10 @@ ngx_int_t srv_conf_validate_domain(ngx_str_t *str) {
     }
 
 #if (NGX_PCRE)
-    if (!srv_domain_check_regex) {
+    if (!ngx_stream_minecraft_forward_module_srv_domain_check_regex) {
         return NGX_OK;
     }
-    return ngx_regex_exec(srv_domain_check_regex, str, NULL, 0) >= 0 ? NGX_OK : NGX_ERROR;
+    return ngx_regex_exec(ngx_stream_minecraft_forward_module_srv_domain_check_regex, str, NULL, 0) >= 0 ? NGX_OK : NGX_ERROR;
 #else
     return NGX_OK;
 #endif
