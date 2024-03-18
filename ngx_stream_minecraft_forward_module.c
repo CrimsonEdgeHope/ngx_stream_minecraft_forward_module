@@ -2,18 +2,18 @@
 #include "ngx_stream_minecraft_forward_module_utils.h"
 #include "ngx_stream_minecraft_protocol_numbers.h"
 
-void *ngx_stream_minecraft_forward_module_create_srv_conf(ngx_conf_t *cf);
-char *ngx_stream_minecraft_forward_module_merge_srv_conf(ngx_conf_t *cf, void *prev, void *conf);
+static void *ngx_stream_minecraft_forward_module_create_srv_conf(ngx_conf_t *cf);
+static char *ngx_stream_minecraft_forward_module_merge_srv_conf(ngx_conf_t *cf, void *prev, void *conf);
 
-char *ngx_stream_minecraft_forward_module_srv_conf_minecraft_server_domain(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
+static char *ngx_stream_minecraft_forward_module_srv_conf_minecraft_server_domain(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 
-ngx_int_t ngx_stream_minecraft_forward_module_preread(ngx_stream_session_t *s);
+static ngx_int_t ngx_stream_minecraft_forward_module_preread(ngx_stream_session_t *s);
 
-ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_session_t *s, ngx_chain_t *chain, ngx_uint_t from_upstream);
+static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_session_t *s, ngx_chain_t *chain, ngx_uint_t from_upstream);
 
-ngx_int_t ngx_stream_minecraft_forward_module_pre_init(ngx_conf_t *cf);
+static ngx_int_t ngx_stream_minecraft_forward_module_pre_init(ngx_conf_t *cf);
 
-ngx_int_t ngx_stream_minecraft_forward_module_post_init(ngx_conf_t *cf);
+static ngx_int_t ngx_stream_minecraft_forward_module_post_init(ngx_conf_t *cf);
 
 ngx_stream_filter_pt ngx_stream_next_filter;
 
@@ -23,7 +23,7 @@ ngx_stream_filter_pt ngx_stream_next_filter;
 
 #define PORT_LEN sizeof(u_short)
 
-ngx_command_t ngx_stream_minecraft_forward_module_directives[] = {
+static ngx_command_t ngx_stream_minecraft_forward_module_directives[] = {
     {ngx_string("minecraft_server_forward"), /* Indicate a server block that proxies minecraft tcp connections. */
      NGX_STREAM_SRV_CONF | NGX_CONF_FLAG,
      ngx_conf_set_flag_slot,
@@ -51,7 +51,7 @@ ngx_command_t ngx_stream_minecraft_forward_module_directives[] = {
     ngx_null_command /* END */
 };
 
-ngx_stream_module_t ngx_stream_minecraft_forward_module_conf_ctx = {
+static ngx_stream_module_t ngx_stream_minecraft_forward_module_conf_ctx = {
     ngx_stream_minecraft_forward_module_pre_init,  /* preconfiguration */
     ngx_stream_minecraft_forward_module_post_init, /* postconfiguration */
 
@@ -77,7 +77,7 @@ ngx_module_t ngx_stream_minecraft_forward_module = {
     NGX_MODULE_V1_PADDING                           /* No padding*/
 };
 
-void *ngx_stream_minecraft_forward_module_create_srv_conf(ngx_conf_t *cf) {
+static void *ngx_stream_minecraft_forward_module_create_srv_conf(ngx_conf_t *cf) {
     ngx_stream_minecraft_forward_module_srv_conf_t *conf;
     conf = ngx_pcalloc(cf->pool, sizeof(ngx_stream_minecraft_forward_module_srv_conf_t));
     if (conf == NULL) {
@@ -103,7 +103,7 @@ void *ngx_stream_minecraft_forward_module_create_srv_conf(ngx_conf_t *cf) {
     return conf;
 }
 
-char *ngx_stream_minecraft_forward_module_srv_conf_minecraft_server_domain(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+static char *ngx_stream_minecraft_forward_module_srv_conf_minecraft_server_domain(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
     ngx_stream_minecraft_forward_module_srv_conf_t *sc = conf;
 
     ngx_str_t *values;
@@ -134,7 +134,7 @@ char *ngx_stream_minecraft_forward_module_srv_conf_minecraft_server_domain(ngx_c
 #define _DEFAULT_HASH_MAX_SIZE 512
 #define _DEFAULT_HASH_BUCKET_SIZE 64
 
-char *ngx_stream_minecraft_forward_module_merge_srv_conf(ngx_conf_t *cf, void *prev, void *conf) {
+static char *ngx_stream_minecraft_forward_module_merge_srv_conf(ngx_conf_t *cf, void *prev, void *conf) {
     ngx_stream_minecraft_forward_module_srv_conf_t *pconf = prev;
     ngx_stream_minecraft_forward_module_srv_conf_t *cconf = conf;
 
@@ -209,7 +209,7 @@ ngx_int_t is_protocol_num_acceptable(ngx_stream_minecraft_forward_module_ctx_t *
     }
 }
 
-ngx_int_t ngx_stream_minecraft_forward_module_preread(ngx_stream_session_t *s) {
+static ngx_int_t ngx_stream_minecraft_forward_module_preread(ngx_stream_session_t *s) {
     ngx_connection_t *c = s->connection;
     c->log->action = "prereading minecraft packet";
     if (c->type != SOCK_STREAM) {
@@ -414,7 +414,7 @@ ngx_str_t *get_new_hostname_str(ngx_stream_minecraft_forward_module_srv_conf_t *
     return (ngx_str_t *)ngx_hash_find(&sconf->domain_map, ngx_hash_key(old_str, old_str_len), old_str, old_str_len);
 }
 
-ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_session_t *s, ngx_chain_t *chain, ngx_uint_t from_upstream) {
+static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_session_t *s, ngx_chain_t *chain, ngx_uint_t from_upstream) {
     ngx_connection_t *c = s->connection;
     ngx_int_t rc;
     if (c->type != SOCK_STREAM || chain == NULL) {
@@ -618,7 +618,7 @@ filter_failure:
 ngx_regex_t *srv_domain_check_regex = NULL;
 #endif
 
-ngx_int_t ngx_stream_minecraft_forward_module_pre_init(ngx_conf_t *cf) {
+static ngx_int_t ngx_stream_minecraft_forward_module_pre_init(ngx_conf_t *cf) {
 #if (NGX_PCRE)
     ngx_regex_compile_t rc;
 
@@ -644,7 +644,7 @@ ngx_int_t ngx_stream_minecraft_forward_module_pre_init(ngx_conf_t *cf) {
     return NGX_OK;
 }
 
-ngx_int_t ngx_stream_minecraft_forward_module_post_init(ngx_conf_t *cf) {
+static ngx_int_t ngx_stream_minecraft_forward_module_post_init(ngx_conf_t *cf) {
     ngx_stream_handler_pt *hp;
     ngx_stream_core_main_conf_t *cmcf;
 
