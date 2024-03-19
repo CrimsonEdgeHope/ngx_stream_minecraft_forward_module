@@ -471,6 +471,7 @@ static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_s
     u_char *new_hostname_str = NULL;
     u_char *new_hostname_varint_bytes = NULL;
     size_t new_hostname_varint_byte_len = 0;
+    size_t new_hostname_str_len = 0;
 
     size_t protocol_varint_byte_len = 0;
     u_char *protocol_num_varint = create_minecraft_varint(c, ctx->protocol_num, &protocol_varint_byte_len);
@@ -478,15 +479,18 @@ static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_s
         goto filter_failure;
     }
 
-    size_t new_hostname_str_len = 0;
-    new_hostname_str = get_new_hostname_str(ngx_stream_get_module_srv_conf(s, ngx_stream_minecraft_forward_module), ctx->remote_hostname, ctx->remote_hostname_len)->data;
+    ngx_str_t *new_hostname = get_new_hostname_str(ngx_stream_get_module_srv_conf(s, ngx_stream_minecraft_forward_module), ctx->remote_hostname, ctx->remote_hostname_len);
+    new_hostname_str = new_hostname->data;
+    new_hostname_str_len = new_hostname->len;
+    if (new_hostname_str_len <= 0) {
+        goto filter_failure;
+    }
     if (new_hostname_str == NULL) {
         new_hostname_str = ctx->remote_hostname;
     }
-    new_hostname_str_len = ngx_strlen(new_hostname_str);
     ngx_log_error(NGX_LOG_INFO, c->log, 0, "New hostname string: %s", new_hostname_str);
     new_hostname_varint_bytes = create_minecraft_varint(c, new_hostname_str_len, &new_hostname_varint_byte_len);
-    if (new_hostname_str_len <= 0 || new_hostname_varint_bytes == NULL) {
+    if (new_hostname_varint_bytes == NULL) {
         goto filter_failure;
     }
 
