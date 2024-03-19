@@ -12,9 +12,9 @@ typedef struct {
     ngx_hash_init_t domain_map_init;
     /* Both `key` and `value` are `ngx_str_t *` */
     ngx_hash_keys_arrays_t domain_map_keys;
-
     size_t hash_max_size;
     size_t hash_bucket_size;
+    ngx_flag_t replace_on_ping;
 
     ngx_flag_t enabled;
 } ngx_stream_minecraft_forward_module_srv_conf_t;
