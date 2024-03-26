@@ -440,11 +440,6 @@ end_of_preread:
         ngx_pfree(c->pool, uuid);
         uuid = NULL;
     }
-    if (ctx->remote_hostname) {
-        ngx_pfree(c->pool, ctx->remote_hostname);
-        ctx->remote_hostname = NULL;
-        hostname_str = NULL;
-    }
     if (username_str) {
         ngx_pfree(c->pool, username_str);
         username_str = NULL;
@@ -461,6 +456,11 @@ end_of_preread:
 
 preread_failure:
     ctx->fail = 1;
+    if (ctx->remote_hostname) {
+        ngx_pfree(c->pool, ctx->remote_hostname);
+        ctx->remote_hostname = NULL;
+        hostname_str = NULL;
+    }
     goto end_of_preread;
 }
 
@@ -483,6 +483,19 @@ static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_s
     if (ctx == NULL) {
         return ngx_stream_next_filter(s, chain, from_upstream);
     }
+
+    ngx_str_t *new_hostname = NULL;
+    u_char *new_hostname_str = NULL;
+    u_char *new_hostname_varint_bytes = NULL;
+    size_t new_hostname_varint_byte_len = 0;
+    size_t new_hostname_str_len = 0;
+
+    size_t protocol_varint_byte_len = 0;
+    u_char *protocol_num_varint = NULL;
+
+    size_t new_handshake_len = 0;
+    size_t new_handshake_varint_byte_len = 0;
+    u_char *new_handshake_varint_byte = NULL;
 
     c->log->action = "filtering minecraft packet";
     if (ctx->pinged) {
@@ -529,18 +542,12 @@ static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_s
             goto filter_failure;
     }
 
-    u_char *new_hostname_str = NULL;
-    u_char *new_hostname_varint_bytes = NULL;
-    size_t new_hostname_varint_byte_len = 0;
-    size_t new_hostname_str_len = 0;
-
-    size_t protocol_varint_byte_len = 0;
-    u_char *protocol_num_varint = create_minecraft_varint(c, ctx->protocol_num, &protocol_varint_byte_len);
+    protocol_num_varint = create_minecraft_varint(c, ctx->protocol_num, &protocol_varint_byte_len);
     if (protocol_num_varint == NULL) {
         goto filter_failure;
     }
 
-    ngx_str_t *new_hostname = get_new_hostname_str(sconf, ctx->remote_hostname, ctx->remote_hostname_len);
+    new_hostname = get_new_hostname_str(sconf, ctx->remote_hostname, ctx->remote_hostname_len);
     if (new_hostname == NULL) {
         if (sconf->disconnect_on_nomatch) {
             ngx_log_error(NGX_LOG_INFO, c->log, 0, "Closing connection because no domain match");
@@ -563,11 +570,10 @@ static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_s
 
     // https://wiki.vg/Protocol#Handshake
     // Packet id, Protocol Version varint, Prefixed string (Length varint + content), Server port, Next state.
-    size_t new_handshake_len = 1 + protocol_varint_byte_len + new_hostname_varint_byte_len + new_hostname_str_len + PORT_LEN + 1;
+    new_handshake_len = 1 + protocol_varint_byte_len + new_hostname_varint_byte_len + new_hostname_str_len + PORT_LEN + 1;
 
     // The whole packet is prefixed by a total length in varint.
-    size_t new_handshake_varint_byte_len;
-    u_char *new_handshake_varint_byte = create_minecraft_varint(c, new_handshake_len, &new_handshake_varint_byte_len);
+    new_handshake_varint_byte = create_minecraft_varint(c, new_handshake_len, &new_handshake_varint_byte_len);
 
     size_t old_handshake_len = ctx->handshake_varint_byte_len + ctx->handshake_len;
     new_handshake_len = new_handshake_varint_byte_len + new_handshake_len;
@@ -639,13 +645,16 @@ static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_s
                    new_handshake_len, new_handshake_varint_byte_len, ctx->protocol_num, protocol_varint_byte_len, new_hostname_varint_byte_len, new_hostname_str_len);
 
     ngx_chain_t *split_remnant_chain = NULL;
+    ngx_log_debug1(NGX_LOG_DEBUG_STREAM, c->log, 0, "split_remnant_len: %d", split_remnant_len);
     if (split_remnant_len > 0) {
         split_remnant_chain = ngx_chain_get_free_buf(c->pool, &ctx->filter_free);
         if (split_remnant_chain == NULL) {
+            ngx_log_error(NGX_LOG_EMERG, c->log, 0, "Cannot get free buf chain for split remnant");
             goto filter_failure;
         }
         split_remnant_chain->buf->pos = ngx_pcalloc(c->pool, split_remnant_len * sizeof(u_char));
         if (split_remnant_chain->buf->pos == NULL) {
+            ngx_log_error(NGX_LOG_EMERG, c->log, 0, "Cannot initialize split remnant new buf space");
             goto filter_failure;
         }
         split_remnant_chain->buf->start = split_remnant_chain->buf->pos;
@@ -656,7 +665,6 @@ static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_s
 
         split_remnant_chain->buf->last = ngx_cpymem(split_remnant_chain->buf->pos, target_chain_node->buf->last - split_remnant_len, split_remnant_len);
     }
-    ngx_log_debug1(NGX_LOG_DEBUG_STREAM, c->log, 0, "split_remnant_len: %d", split_remnant_len);
     ngx_log_error(NGX_LOG_INFO, c->log, 0, "Filter: Provided hostname: %s, "
                                            "New hostname string: %s",
                   ctx->remote_hostname, new_hostname_str);
@@ -711,17 +719,44 @@ static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_s
 
     if (ctx->phase == STATUS_PHASE) {
         if (sconf->replace_on_ping) {
-            return rc;
+            switch (rc) {
+                case NGX_OK:
+                    goto end_of_filter;
+                case NGX_AGAIN:  // What to do with this?
+                case NGX_ERROR:
+                default:
+                    goto filter_failure;
+            }
         } else {
             goto filter_failure;
         }
     }
+
+end_of_filter:
+    if (ctx->remote_hostname) {
+        ngx_pfree(c->pool, ctx->remote_hostname);
+        ctx->remote_hostname = NULL;
+    }
+    if (protocol_num_varint) {
+        ngx_pfree(c->pool, protocol_num_varint);
+        protocol_num_varint = NULL;
+    }
+    if (new_hostname_varint_bytes) {
+        ngx_pfree(c->pool, new_hostname_varint_bytes);
+        new_hostname_varint_bytes = NULL;
+    }
+    if (new_handshake_varint_byte) {
+        ngx_pfree(c->pool, new_handshake_varint_byte);
+        new_handshake_varint_byte = NULL;
+    }
+
+    rc = ctx->fail ? NGX_ERROR : rc;
     remove_module_ctx(s);
     return rc;
 
 filter_failure:
-    remove_module_ctx(s);
-    return NGX_ERROR;
+    ctx->fail = 1;
+    goto end_of_filter;
 }
 
 #if (NGX_PCRE)
