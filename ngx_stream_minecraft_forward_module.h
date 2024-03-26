@@ -39,6 +39,8 @@ typedef struct {
 
     ngx_chain_t *filter_free;
     ngx_chain_t *filter_busy;
+
+    u_short fail : 1;
 } ngx_stream_minecraft_forward_module_ctx_t;
 
 extern ngx_module_t ngx_stream_minecraft_forward_module;
