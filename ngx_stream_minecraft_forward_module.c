@@ -30,6 +30,12 @@ static ngx_command_t ngx_stream_minecraft_forward_module_directives[] = {
      NGX_STREAM_SRV_CONF_OFFSET,
      offsetof(ngx_stream_minecraft_forward_module_srv_conf_t, enabled),
      NULL},
+    {ngx_string("minecraft_server_disconnect_on_nomatch"),
+     NGX_STREAM_MAIN_CONF | NGX_STREAM_SRV_CONF | NGX_CONF_FLAG,
+     ngx_conf_set_flag_slot,
+     NGX_STREAM_SRV_CONF_OFFSET,
+     offsetof(ngx_stream_minecraft_forward_module_srv_conf_t, disconnect_on_nomatch),
+     NULL},
     {ngx_string("minecraft_server_do_replace_on_ping"),
      NGX_STREAM_MAIN_CONF | NGX_STREAM_SRV_CONF | NGX_CONF_FLAG,
      ngx_conf_set_flag_slot,
@@ -40,7 +46,7 @@ static ngx_command_t ngx_stream_minecraft_forward_module_directives[] = {
      NGX_STREAM_MAIN_CONF | NGX_STREAM_SRV_CONF | NGX_CONF_TAKE23,
      ngx_stream_minecraft_forward_module_srv_conf_minecraft_server_domain,
      NGX_STREAM_SRV_CONF_OFFSET,
-     offsetof(ngx_stream_minecraft_forward_module_srv_conf_t, domain_map),
+     0,
      NULL},
     {ngx_string("minecraft_server_domain_hash_max_size"),
      NGX_STREAM_MAIN_CONF | NGX_STREAM_SRV_CONF | NGX_CONF_TAKE1,
@@ -90,6 +96,7 @@ static void *ngx_stream_minecraft_forward_module_create_srv_conf(ngx_conf_t *cf)
         return NULL;
     }
     conf->enabled = NGX_CONF_UNSET;
+    conf->disconnect_on_nomatch = NGX_CONF_UNSET;
 
     conf->domain_map_init.hash = &conf->domain_map;
     conf->domain_map_init.key = ngx_hash_key_lc;
@@ -154,6 +161,7 @@ static char *ngx_stream_minecraft_forward_module_merge_srv_conf(ngx_conf_t *cf, 
     ngx_stream_minecraft_forward_module_srv_conf_t *cconf = conf;
 
     ngx_conf_merge_value(cconf->enabled, pconf->enabled, 0);
+    ngx_conf_merge_value(cconf->disconnect_on_nomatch, pconf->disconnect_on_nomatch, 0);
     ngx_conf_merge_value(cconf->replace_on_ping, pconf->replace_on_ping, 1);
     ngx_conf_merge_size_value(pconf->hash_max_size, NGX_CONF_UNSET_SIZE, _DEFAULT_HASH_MAX_SIZE);
     ngx_conf_merge_size_value(pconf->hash_bucket_size, NGX_CONF_UNSET_SIZE, _DEFAULT_HASH_BUCKET_SIZE);
@@ -515,6 +523,10 @@ static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_s
 
     ngx_str_t *new_hostname = get_new_hostname_str(sconf, ctx->remote_hostname, ctx->remote_hostname_len);
     if (new_hostname == NULL) {
+        if (sconf->disconnect_on_nomatch) {
+            ngx_log_error(NGX_LOG_INFO, c->log, 0, "Closing connection because no domain match");
+            goto filter_failure;
+        }
         new_hostname_str = ctx->remote_hostname;
         new_hostname_str_len = ctx->remote_hostname_len;
     } else {
