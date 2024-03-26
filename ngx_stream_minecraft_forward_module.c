@@ -209,9 +209,8 @@ void remove_module_ctx(ngx_stream_session_t *s) {
     ngx_stream_set_ctx(s, NULL, ngx_stream_minecraft_forward_module);
 }
 
-/* Assertion of all protocols referring to Minecraft Java since Netty rewrite */
-ngx_int_t is_protocol_num_acceptable(ngx_stream_minecraft_forward_module_ctx_t *ctx) {
-    switch (ctx->protocol_num) {
+ngx_int_t is_protocol_num_acceptable(ngx_int_t protocol_num) {
+    switch (protocol_num) {
         case MINECRAFT_1_20_4:
         case MINECRAFT_1_20_2:
         case MINECRAFT_1_20_1:
@@ -223,6 +222,10 @@ ngx_int_t is_protocol_num_acceptable(ngx_stream_minecraft_forward_module_ctx_t *
         default:
             return NGX_ERROR;
     }
+}
+
+ngx_int_t is_protocol_num_acceptable_by_ctx(ngx_stream_minecraft_forward_module_ctx_t *ctx) {
+    return is_protocol_num_acceptable(ctx->protocol_num);
 }
 
 static ngx_int_t ngx_stream_minecraft_forward_module_preread(ngx_stream_session_t *s) {
@@ -286,15 +289,17 @@ static ngx_int_t ngx_stream_minecraft_forward_module_preread(ngx_stream_session_
     }
     ++bufpos;
 
+    ngx_int_t protocol_num = -1;
+    u_char *hostname_str = NULL;
+
     if (ctx->phase == HANDSHAKE_PHASE) {
         ctx->handshake_len = ctx->expected_packet_len;
         ctx->handshake_varint_byte_len = byte_len;
 
-        ngx_int_t protocol_num = -1;
         protocol_num = read_minecraft_varint(bufpos, &byte_len);
-        ngx_log_error(NGX_LOG_INFO, c->log, 0, "Protocol number: %d", protocol_num);
+
         ctx->protocol_num = protocol_num;
-        if (is_protocol_num_acceptable(ctx) != NGX_OK) {
+        if (is_protocol_num_acceptable_by_ctx(ctx) != NGX_OK) {
             ngx_log_error(NGX_LOG_WARN, c->log, 0, "Protocol number %d is not acceptable", protocol_num);
             goto preread_failure;
         }
@@ -307,12 +312,12 @@ static ngx_int_t ngx_stream_minecraft_forward_module_preread(ngx_stream_session_
         }
         bufpos += byte_len;
 
-        u_char *hostname_str = parse_string_from_packet(c, bufpos, prefix_len);
+        hostname_str = parse_string_from_packet(c, bufpos, prefix_len);
         if (hostname_str == NULL) {
             ngx_log_error(NGX_LOG_ALERT, c->log, 0, "Cannot retrieve hostname");
             goto preread_failure;
         }
-        ngx_log_error(NGX_LOG_INFO, c->log, 0, "Remote hostname: %s", hostname_str);
+
         ctx->remote_hostname = hostname_str;
         ctx->remote_hostname_len = prefix_len;
         bufpos += prefix_len;
@@ -323,10 +328,8 @@ static ngx_int_t ngx_stream_minecraft_forward_module_preread(ngx_stream_session_
         bufpos += PORT_LEN; /* Port */
 
         if (bufpos[0] == (u_char)'\1') {
-            ngx_log_error(NGX_LOG_INFO, c->log, 0, "Next state: Status");
             ctx->phase = STATUS_PHASE;
         } else if (bufpos[0] == (u_char)'\2') {
-            ngx_log_error(NGX_LOG_INFO, c->log, 0, "Next state: Login");
             ctx->phase = LOGIN_START_PHASE;
         } else {
             ngx_log_error(NGX_LOG_EMERG, c->log, 0, "Unknown next state (%d)", bufpos[0]);
@@ -334,6 +337,10 @@ static ngx_int_t ngx_stream_minecraft_forward_module_preread(ngx_stream_session_
         }
         ++bufpos;
     }
+    ngx_log_error(NGX_LOG_INFO, c->log, 0, "Preread: Protocol num: %d, "
+                                           "Hostname provided: %s, "
+                                           "Next state: %s",
+                  protocol_num, hostname_str, ctx->phase == STATUS_PHASE ? "status" : "login");
 
     if (ctx->phase == STATUS_PHASE) {
         ctx->preread_pass = 1;
@@ -380,18 +387,16 @@ static ngx_int_t ngx_stream_minecraft_forward_module_preread(ngx_stream_session_
         ngx_log_error(NGX_LOG_ALERT, c->log, 0, "Cannot retrieve username");
         goto preread_failure;
     }
-    ngx_log_error(NGX_LOG_INFO, c->log, 0, "Username: %s", username_str);
-    ngx_pfree(c->pool, username_str);
-    username_str = NULL;
 
     bufpos += prefix_len;
 
+    u_char *uuid = NULL;
     if (ctx->protocol_num >= MINECRAFT_1_19_3) {
         if (ctx->protocol_num <= MINECRAFT_1_20_1) {
             ++bufpos;
         }
 
-        u_char *uuid = ngx_pcalloc(c->pool, 33 * sizeof(u_char));
+        uuid = ngx_pcalloc(c->pool, 33 * sizeof(u_char));
         for (int i = 0; i < 32; ++i) {
             if (i % 2) {
                 uuid[i] = bufpos[i / 2] & (u_char)0x0F;
@@ -406,11 +411,22 @@ static ngx_int_t ngx_stream_minecraft_forward_module_preread(ngx_stream_session_
                 goto preread_failure;
             }
         }
-        ngx_log_error(NGX_LOG_INFO, c->log, 0, "UUID: %s", uuid);
-        ngx_pfree(c->pool, uuid);
 
         bufpos += 16;
     }
+
+    ngx_log_error(NGX_LOG_INFO, c->log, 0, "Preread: Protocol num: %d, "
+                                           "Hostname provided: %s, "
+                                           "Username: %s, "
+                                           "UUID: %s",
+                  protocol_num, hostname_str, username_str, uuid != NULL ? uuid : (u_char *)"*Not provided*");
+
+    if (uuid != NULL) {
+        ngx_pfree(c->pool, uuid);
+        uuid = NULL;
+    }
+    ngx_pfree(c->pool, username_str);
+    username_str = NULL;
 
     ctx->preread_pass = 1;
     return NGX_OK;
@@ -509,7 +525,6 @@ static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_s
         goto filter_failure;
     }
 
-    ngx_log_error(NGX_LOG_INFO, c->log, 0, "New hostname string: %s", new_hostname_str);
     new_hostname_varint_bytes = create_minecraft_varint(c, new_hostname_str_len, &new_hostname_varint_byte_len);
     if (new_hostname_varint_bytes == NULL) {
         goto filter_failure;
@@ -611,6 +626,10 @@ static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_s
         split_remnant_chain->buf->last = ngx_cpymem(split_remnant_chain->buf->pos, target_chain_node->buf->last - split_remnant_len, split_remnant_len);
     }
     ngx_log_debug1(NGX_LOG_DEBUG_STREAM, c->log, 0, "split_remnant_len: %d", split_remnant_len);
+    ngx_log_error(NGX_LOG_INFO, c->log, 0, "Filter: Provided hostname: %s, "
+                                           "New hostname string: %s",
+                  ctx->remote_hostname, new_hostname_str);
+
 
     // https://nginx.org/en/docs/dev/development_guide.html#http_body_buffers_reuse
 
