@@ -2,3 +2,13 @@
 .vs/
 .vscode/
 *.o
+node_modules/
+.idea/
+*.log
+dist/
+public/
+*.txt
+logs/
+coverage/
+junit.xml
+*.env*
