@@ -12,3 +12,4 @@ logs/
 coverage/
 junit.xml
 *.env*
+*inspect/
