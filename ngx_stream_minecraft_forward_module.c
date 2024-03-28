@@ -349,14 +349,9 @@ static ngx_int_t ngx_stream_minecraft_forward_module_preread(ngx_stream_session_
         }
         ++bufpos;
     }
-    ngx_log_error(NGX_LOG_INFO, c->log, 0, "Preread: Protocol num: %d, "
-                                           "Hostname provided: %s, "
-                                           "Next state: %s",
-                  protocol_num, hostname_str, ctx->phase == STATUS_PHASE ? "status" : "login");
 
     if (ctx->phase == STATUS_PHASE) {
-        ctx->preread_pass = 1;
-        return NGX_OK;
+        goto end_of_preread;
     }
 
     c->log->action = "prereading minecraft loginstart packet";
@@ -430,22 +425,29 @@ end_of_preread:
     ngx_log_error(NGX_LOG_INFO, c->log, 0, "Preread: Protocol num: %d, "
                                            "Hostname provided: %s, "
                                            "Username: %s, "
-                                           "UUID: %s",
+                                           "UUID: %s, "
+                                           "Next state: %s",
                   protocol_num,
                   hostname_str ? hostname_str : (u_char *)"*Missing*",
                   username_str ? username_str : (u_char *)"*Missing*",
-                  uuid ? uuid : (u_char *)"*Not provided*");
+                  uuid ? uuid : (u_char *)"*Missing*",
+                  ctx->phase == STATUS_PHASE ? "status" : "login");
 
-    if (uuid) {
+    if (uuid != NULL) {
         ngx_pfree(c->pool, uuid);
         uuid = NULL;
     }
-    if (username_str) {
+    if (username_str != NULL) {
         ngx_pfree(c->pool, username_str);
         username_str = NULL;
     }
 
     if (ctx->fail) {
+        if (ctx->remote_hostname != NULL) {
+            ngx_pfree(c->pool, ctx->remote_hostname);
+            ctx->remote_hostname = NULL;
+            hostname_str = NULL;
+        }
         remove_module_ctx(s);
         ngx_log_error(NGX_LOG_ERR, c->log, 0, "Preread failed");
         return NGX_ERROR;
@@ -456,16 +458,11 @@ end_of_preread:
 
 preread_failure:
     ctx->fail = 1;
-    if (ctx->remote_hostname) {
-        ngx_pfree(c->pool, ctx->remote_hostname);
-        ctx->remote_hostname = NULL;
-        hostname_str = NULL;
-    }
     goto end_of_preread;
 }
 
 ngx_str_t *get_new_hostname_str(ngx_stream_minecraft_forward_module_srv_conf_t *sconf, u_char *old_str, size_t old_str_len) {
-    if (sconf == NULL || old_str == NULL) {
+    if (!sconf || old_str == NULL) {
         return NULL;
     }
     return (ngx_str_t *)ngx_hash_find(&sconf->domain_map, ngx_hash_key(old_str, old_str_len), old_str, old_str_len);
@@ -722,7 +719,7 @@ static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_s
             switch (rc) {
                 case NGX_OK:
                     goto end_of_filter;
-                case NGX_AGAIN:  // What to do with this?
+                case NGX_AGAIN: // What to do with this?
                 case NGX_ERROR:
                 default:
                     goto filter_failure;
@@ -733,19 +730,19 @@ static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_s
     }
 
 end_of_filter:
-    if (ctx->remote_hostname) {
+    if (ctx->remote_hostname != NULL) {
         ngx_pfree(c->pool, ctx->remote_hostname);
         ctx->remote_hostname = NULL;
     }
-    if (protocol_num_varint) {
+    if (protocol_num_varint != NULL) {
         ngx_pfree(c->pool, protocol_num_varint);
         protocol_num_varint = NULL;
     }
-    if (new_hostname_varint_bytes) {
+    if (new_hostname_varint_bytes != NULL) {
         ngx_pfree(c->pool, new_hostname_varint_bytes);
         new_hostname_varint_bytes = NULL;
     }
-    if (new_handshake_varint_byte) {
+    if (new_handshake_varint_byte != NULL) {
         ngx_pfree(c->pool, new_handshake_varint_byte);
         new_handshake_varint_byte = NULL;
     }
