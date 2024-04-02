@@ -13,7 +13,7 @@ u_char *parse_string_from_packet(ngx_connection_t *c, u_char *bufpos, size_t len
 
 u_char *create_minecraft_varint(ngx_connection_t *c, ngx_int_t value, size_t *byte_len);
 
-ngx_int_t srv_conf_validate_domain(ngx_str_t *str);
+ngx_int_t ngx_stream_minecraft_forward_module_srv_conf_validate_hostname(ngx_str_t *str);
 
 #define VARINT_MAX_BYTE_LEN 5
 

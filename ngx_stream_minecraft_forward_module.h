@@ -8,10 +8,10 @@
 #define _NGX_STREAM_MINECRAFT_FORWARD_MODULE_H
 
 typedef struct {
-    ngx_hash_t domain_map;
-    ngx_hash_init_t domain_map_init;
+    ngx_hash_t hostname_map;
+    ngx_hash_init_t hostname_map_init;
     /* Both `key` and `value` are `ngx_str_t *` */
-    ngx_hash_keys_arrays_t domain_map_keys;
+    ngx_hash_keys_arrays_t hostname_map_keys;
     size_t hash_max_size;
     size_t hash_bucket_size;
 
@@ -46,7 +46,7 @@ typedef struct {
 extern ngx_module_t ngx_stream_minecraft_forward_module;
 
 #if (NGX_PCRE)
-extern ngx_regex_t *ngx_stream_minecraft_forward_module_srv_domain_check_regex;
+extern ngx_regex_t *ngx_stream_minecraft_forward_module_srv_hostname_check_regex;
 #endif
 
 #endif

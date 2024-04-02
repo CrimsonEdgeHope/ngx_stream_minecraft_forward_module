@@ -157,7 +157,7 @@ u_char *create_minecraft_varint(ngx_connection_t *c, ngx_int_t value, size_t *by
     return varint;
 }
 
-ngx_int_t srv_conf_validate_domain(ngx_str_t *str) {
+ngx_int_t ngx_stream_minecraft_forward_module_srv_conf_validate_hostname(ngx_str_t *str) {
     if (!str) {
         return NGX_ERROR;
     }
@@ -166,10 +166,10 @@ ngx_int_t srv_conf_validate_domain(ngx_str_t *str) {
     }
 
 #if (NGX_PCRE)
-    if (!ngx_stream_minecraft_forward_module_srv_domain_check_regex) {
+    if (!ngx_stream_minecraft_forward_module_srv_hostname_check_regex) {
         return NGX_OK;
     }
-    return ngx_regex_exec(ngx_stream_minecraft_forward_module_srv_domain_check_regex, str, NULL, 0) >= 0 ? NGX_OK : NGX_ERROR;
+    return ngx_regex_exec(ngx_stream_minecraft_forward_module_srv_hostname_check_regex, str, NULL, 0) >= 0 ? NGX_OK : NGX_ERROR;
 #else
     return NGX_OK;
 #endif

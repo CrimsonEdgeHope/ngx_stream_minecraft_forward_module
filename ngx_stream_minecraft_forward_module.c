@@ -5,7 +5,7 @@
 static void *ngx_stream_minecraft_forward_module_create_srv_conf(ngx_conf_t *cf);
 static char *ngx_stream_minecraft_forward_module_merge_srv_conf(ngx_conf_t *cf, void *prev, void *conf);
 
-static char *ngx_stream_minecraft_forward_module_srv_conf_minecraft_server_domain(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
+static char *ngx_stream_minecraft_forward_module_srv_conf_minecraft_server_hostname(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 
 static ngx_int_t ngx_stream_minecraft_forward_module_preread(ngx_stream_session_t *s);
 
@@ -24,43 +24,43 @@ ngx_stream_filter_pt ngx_stream_next_filter;
 #define PORT_LEN sizeof(u_short)
 
 static ngx_command_t ngx_stream_minecraft_forward_module_directives[] = {
-    {ngx_string("minecraft_server_forward"), /* Indicate a server block that proxies minecraft tcp connections. */
+    {ngx_string("minecraft_server_forward"),
      NGX_STREAM_SRV_CONF | NGX_CONF_FLAG,
      ngx_conf_set_flag_slot,
      NGX_STREAM_SRV_CONF_OFFSET,
      offsetof(ngx_stream_minecraft_forward_module_srv_conf_t, enabled),
      NULL},
-    {ngx_string("minecraft_server_disconnect_on_nomatch"),
-     NGX_STREAM_MAIN_CONF | NGX_STREAM_SRV_CONF | NGX_CONF_FLAG,
-     ngx_conf_set_flag_slot,
-     NGX_STREAM_SRV_CONF_OFFSET,
-     offsetof(ngx_stream_minecraft_forward_module_srv_conf_t, disconnect_on_nomatch),
-     NULL},
-    {ngx_string("minecraft_server_do_replace_on_ping"),
-     NGX_STREAM_MAIN_CONF | NGX_STREAM_SRV_CONF | NGX_CONF_FLAG,
-     ngx_conf_set_flag_slot,
-     NGX_STREAM_SRV_CONF_OFFSET,
-     offsetof(ngx_stream_minecraft_forward_module_srv_conf_t, replace_on_ping),
-     NULL},
-    {ngx_string("minecraft_server_domain"),
+    {ngx_string("minecraft_server_hostname"),
      NGX_STREAM_MAIN_CONF | NGX_STREAM_SRV_CONF | NGX_CONF_TAKE23,
-     ngx_stream_minecraft_forward_module_srv_conf_minecraft_server_domain,
+     ngx_stream_minecraft_forward_module_srv_conf_minecraft_server_hostname,
      NGX_STREAM_SRV_CONF_OFFSET,
      0,
      NULL},
-    {ngx_string("minecraft_server_domain_hash_max_size"),
+    {ngx_string("minecraft_server_hostname_hash_max_size"),
      NGX_STREAM_MAIN_CONF | NGX_STREAM_SRV_CONF | NGX_CONF_TAKE1,
      ngx_conf_set_size_slot,
      NGX_STREAM_SRV_CONF_OFFSET,
      offsetof(ngx_stream_minecraft_forward_module_srv_conf_t, hash_max_size),
      NULL},
-    {ngx_string("minecraft_server_domain_hash_bucket_size"),
+    {ngx_string("minecraft_server_hostname_hash_bucket_size"),
      NGX_STREAM_MAIN_CONF | NGX_STREAM_SRV_CONF | NGX_CONF_TAKE1,
      ngx_conf_set_size_slot,
      NGX_STREAM_SRV_CONF_OFFSET,
      offsetof(ngx_stream_minecraft_forward_module_srv_conf_t, hash_bucket_size),
      NULL},
-    ngx_null_command /* END */
+    {ngx_string("minecraft_server_hostname_disconnect_on_nomatch"),
+     NGX_STREAM_MAIN_CONF | NGX_STREAM_SRV_CONF | NGX_CONF_FLAG,
+     ngx_conf_set_flag_slot,
+     NGX_STREAM_SRV_CONF_OFFSET,
+     offsetof(ngx_stream_minecraft_forward_module_srv_conf_t, disconnect_on_nomatch),
+     NULL},
+    {ngx_string("minecraft_server_hostname_replace_on_ping"),
+     NGX_STREAM_MAIN_CONF | NGX_STREAM_SRV_CONF | NGX_CONF_FLAG,
+     ngx_conf_set_flag_slot,
+     NGX_STREAM_SRV_CONF_OFFSET,
+     offsetof(ngx_stream_minecraft_forward_module_srv_conf_t, replace_on_ping),
+     NULL},
+    ngx_null_command,
 };
 
 static ngx_stream_module_t ngx_stream_minecraft_forward_module_conf_ctx = {
@@ -98,16 +98,16 @@ static void *ngx_stream_minecraft_forward_module_create_srv_conf(ngx_conf_t *cf)
     conf->enabled = NGX_CONF_UNSET;
     conf->disconnect_on_nomatch = NGX_CONF_UNSET;
 
-    conf->domain_map_init.hash = &conf->domain_map;
-    conf->domain_map_init.key = ngx_hash_key_lc;
-    conf->domain_map_init.name = "minecraft_server_domain";
-    conf->domain_map_init.pool = cf->pool;
-    conf->domain_map_init.temp_pool = cf->temp_pool;
+    conf->hostname_map_init.hash = &conf->hostname_map;
+    conf->hostname_map_init.key = ngx_hash_key_lc;
+    conf->hostname_map_init.name = "minecraft_server_hostname";
+    conf->hostname_map_init.pool = cf->pool;
+    conf->hostname_map_init.temp_pool = cf->temp_pool;
     conf->hash_max_size = NGX_CONF_UNSET_SIZE;
     conf->hash_bucket_size = NGX_CONF_UNSET_SIZE;
-    conf->domain_map_keys.pool = cf->pool;
-    conf->domain_map_keys.temp_pool = cf->temp_pool;
-    ngx_int_t rc = ngx_hash_keys_array_init(&conf->domain_map_keys, NGX_HASH_SMALL);
+    conf->hostname_map_keys.pool = cf->pool;
+    conf->hostname_map_keys.temp_pool = cf->temp_pool;
+    ngx_int_t rc = ngx_hash_keys_array_init(&conf->hostname_map_keys, NGX_HASH_SMALL);
     if (rc != NGX_OK) {
         ngx_pfree(cf->pool, conf);
         return NULL;
@@ -117,7 +117,7 @@ static void *ngx_stream_minecraft_forward_module_create_srv_conf(ngx_conf_t *cf)
     return conf;
 }
 
-static char *ngx_stream_minecraft_forward_module_srv_conf_minecraft_server_domain(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+static char *ngx_stream_minecraft_forward_module_srv_conf_minecraft_server_hostname(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
     ngx_stream_minecraft_forward_module_srv_conf_t *sc = conf;
 
     ngx_str_t *values;
@@ -134,17 +134,17 @@ static char *ngx_stream_minecraft_forward_module_srv_conf_minecraft_server_domai
         }
     }
     if (!pass) {
-        if (srv_conf_validate_domain(key) != NGX_OK) {
+        if (ngx_stream_minecraft_forward_module_srv_conf_validate_hostname(key) != NGX_OK) {
             ngx_conf_log_error(NGX_LOG_CRIT, cf, 0, "Invalid entry: %s", key->data ? key->data : (u_char *)"*NULL*");
             return NGX_CONF_ERROR;
         }
-        if (srv_conf_validate_domain(val) != NGX_OK) {
+        if (ngx_stream_minecraft_forward_module_srv_conf_validate_hostname(val) != NGX_OK) {
             ngx_conf_log_error(NGX_LOG_CRIT, cf, 0, "Invalid value: %s", val->data ? val->data : (u_char *)"*NULL*");
             return NGX_CONF_ERROR;
         }
     }
 
-    rc = ngx_hash_add_key(&sc->domain_map_keys, key, val, NGX_HASH_READONLY_KEY);
+    rc = ngx_hash_add_key(&sc->hostname_map_keys, key, val, NGX_HASH_READONLY_KEY);
     if (rc != NGX_OK) {
         ngx_conf_log_error(NGX_LOG_CRIT, cf, 0, "There's a problem adding hash key, possibly because of duplicate entry");
         return NGX_CONF_ERROR;
@@ -168,30 +168,30 @@ static char *ngx_stream_minecraft_forward_module_merge_srv_conf(ngx_conf_t *cf, 
     ngx_conf_merge_size_value(cconf->hash_max_size, pconf->hash_max_size, _DEFAULT_HASH_MAX_SIZE);
     ngx_conf_merge_size_value(cconf->hash_bucket_size, pconf->hash_bucket_size, _DEFAULT_HASH_BUCKET_SIZE);
 
-    pconf->domain_map_init.max_size = pconf->hash_max_size;
-    pconf->domain_map_init.bucket_size = ngx_align(pconf->hash_bucket_size, ngx_cacheline_size);
+    pconf->hostname_map_init.max_size = pconf->hash_max_size;
+    pconf->hostname_map_init.bucket_size = ngx_align(pconf->hash_bucket_size, ngx_cacheline_size);
 
     ngx_int_t rc;
-    rc = ngx_hash_init(&pconf->domain_map_init, pconf->domain_map_keys.keys.elts, pconf->domain_map_keys.keys.nelts);
+    rc = ngx_hash_init(&pconf->hostname_map_init, pconf->hostname_map_keys.keys.elts, pconf->hostname_map_keys.keys.nelts);
     if (rc != NGX_OK) {
         ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "There's a problem initializing hash table in stream context");
         return NGX_CONF_ERROR;
     }
 
     // MERGE HASH TABLE
-    for (ngx_uint_t i = 0; i < pconf->domain_map_keys.keys.nelts; ++i) {
-        ngx_str_t *key = &((ngx_hash_key_t *)pconf->domain_map_keys.keys.elts + i)->key;
+    for (ngx_uint_t i = 0; i < pconf->hostname_map_keys.keys.nelts; ++i) {
+        ngx_str_t *key = &((ngx_hash_key_t *)pconf->hostname_map_keys.keys.elts + i)->key;
 
         ngx_uint_t hashed_key = ngx_hash_key(key->data, key->len);
 
-        ngx_str_t *val = (ngx_str_t *)ngx_hash_find(&pconf->domain_map, hashed_key, key->data, key->len);
+        ngx_str_t *val = (ngx_str_t *)ngx_hash_find(&pconf->hostname_map, hashed_key, key->data, key->len);
 
         if (val == NULL) {
             ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "A hash key previously in stream context becomes missing?! This should not happen");
             return NGX_CONF_ERROR;
         }
 
-        rc = ngx_hash_add_key(&cconf->domain_map_keys, key, val, NGX_HASH_READONLY_KEY);
+        rc = ngx_hash_add_key(&cconf->hostname_map_keys, key, val, NGX_HASH_READONLY_KEY);
         if (rc != NGX_OK) {
             if (rc == NGX_BUSY) {
                 ngx_conf_log_error(NGX_LOG_WARN, cf, 0, "There's a problem merging hash table because of duplicate entry");
@@ -202,9 +202,9 @@ static char *ngx_stream_minecraft_forward_module_merge_srv_conf(ngx_conf_t *cf, 
         }
     }
 
-    cconf->domain_map_init.max_size = cconf->hash_max_size;
-    cconf->domain_map_init.bucket_size = ngx_align(cconf->hash_bucket_size, ngx_cacheline_size);
-    rc = ngx_hash_init(&cconf->domain_map_init, cconf->domain_map_keys.keys.elts, cconf->domain_map_keys.keys.nelts);
+    cconf->hostname_map_init.max_size = cconf->hash_max_size;
+    cconf->hostname_map_init.bucket_size = ngx_align(cconf->hash_bucket_size, ngx_cacheline_size);
+    rc = ngx_hash_init(&cconf->hostname_map_init, cconf->hostname_map_keys.keys.elts, cconf->hostname_map_keys.keys.nelts);
     if (rc != NGX_OK) {
         ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "There's a problem initializing hash table in server context");
         return NGX_CONF_ERROR;
@@ -465,7 +465,7 @@ ngx_str_t *get_new_hostname_str(ngx_stream_minecraft_forward_module_srv_conf_t *
     if (!sconf || old_str == NULL) {
         return NULL;
     }
-    return (ngx_str_t *)ngx_hash_find(&sconf->domain_map, ngx_hash_key(old_str, old_str_len), old_str, old_str_len);
+    return (ngx_str_t *)ngx_hash_find(&sconf->hostname_map, ngx_hash_key(old_str, old_str_len), old_str, old_str_len);
 }
 
 static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_session_t *s, ngx_chain_t *chain, ngx_uint_t from_upstream) {
@@ -547,7 +547,7 @@ static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_s
     new_hostname = get_new_hostname_str(sconf, ctx->remote_hostname, ctx->remote_hostname_len);
     if (new_hostname == NULL) {
         if (sconf->disconnect_on_nomatch) {
-            ngx_log_error(NGX_LOG_INFO, c->log, 0, "Closing connection because no domain match");
+            ngx_log_error(NGX_LOG_INFO, c->log, 0, "Closing connection because no hostname match");
             goto filter_failure;
         }
         new_hostname_str = ctx->remote_hostname;
@@ -757,7 +757,7 @@ filter_failure:
 }
 
 #if (NGX_PCRE)
-ngx_regex_t *ngx_stream_minecraft_forward_module_srv_domain_check_regex = NULL;
+ngx_regex_t *ngx_stream_minecraft_forward_module_srv_hostname_check_regex = NULL;
 #endif
 
 static ngx_int_t ngx_stream_minecraft_forward_module_pre_init(ngx_conf_t *cf) {
@@ -781,7 +781,7 @@ static ngx_int_t ngx_stream_minecraft_forward_module_pre_init(ngx_conf_t *cf) {
         return NGX_ERROR;
     }
 
-    ngx_stream_minecraft_forward_module_srv_domain_check_regex = rc.regex;
+    ngx_stream_minecraft_forward_module_srv_hostname_check_regex = rc.regex;
 #endif
     return NGX_OK;
 }

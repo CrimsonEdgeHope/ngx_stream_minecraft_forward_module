@@ -32,42 +32,42 @@ make
 > [!CAUTION]
 > Set to `on` only when upstream server is a Minecraft Java server, otherwise proxy won't function properly.
 
-- Syntax: `minecraft_server_domain  domain_to_be_replaced  new_domain  [arbitrary];` <br/>
+- Syntax: `minecraft_server_hostname  hostname.to.be.replaced  new.hostname  [arbitrary];` <br/>
   Default: None <br/>
   Context: stream, server <br/>
 
-  When a client starts logging process, replace client-provided server hostname or ip with a new hostname before proxying to remote Minecraft server.
+  When a client starts logging process, replace client-provided server hostname with a new hostname before proxying to remote Minecraft server.
 
-  If Nginx is compiled with PCRE, the module applies a simple validation against `domain_to_be_replaced` and `new_domain`. Set `arbitrary` option to bypass the validation.
+  If Nginx is compiled with PCRE, the module applies a simple validation against `hostname.to.be.replaced` and `new.hostname`. Set `arbitrary` option to bypass the validation.
 
 > [!TIP]
 > Due to differences in Minecraft Java protocol specification, should there be a SRV record `_minecraft._tcp.a.domain.for.example.com` that points to `another.domain.for.example.com`, consider define two replacements:
 
 ```
-minecraft_server_domain  a.domain.for.example.com        new.domain.for.example.com;
-minecraft_server_domain  another.domain.for.example.com  new.domain.for.example.com;
+minecraft_server_hostname  a.domain.for.example.com        new.domain.for.example.com;
+minecraft_server_hostname  another.domain.for.example.com  new.domain.for.example.com;
 ```
 
-- Syntax: `minecraft_server_domain_hash_max_size  size;` <br/>
-  Default: `minecraft_server_domain_hash_max_size  512;` <br/>
+- Syntax: `minecraft_server_hostname_hash_max_size  size;` <br/>
+  Default: `minecraft_server_hostname_hash_max_size  512;` <br/>
   Context: stream, server <br/>
 
-  Set the maximum size of hash tables used by `minecraft_server_domain` directive.
+  Set the maximum size of hash tables used by `minecraft_server_hostname` directive.
 
-- Syntax: `minecraft_server_domain_hash_bucket_size  size;` <br/>
-  Default: `minecraft_server_domain_hash_bucket_size  64;` <br/>
+- Syntax: `minecraft_server_hostname_hash_bucket_size  size;` <br/>
+  Default: `minecraft_server_hostname_hash_bucket_size  64;` <br/>
   Context: stream, server <br/>
 
-  Set the bucket size for hash tables used by `minecraft_server_domain` directive.
+  Set the bucket size for hash tables used by `minecraft_server_hostname` directive.
 
-- Syntax: `minecraft_server_disconnect_on_nomatch  off|on;` <br/>
-  Default: `minecraft_server_disconnect_on_nomatch  off;` <br/>
+- Syntax: `minecraft_server_hostname_disconnect_on_nomatch  off|on;` <br/>
+  Default: `minecraft_server_hostname_disconnect_on_nomatch  off;` <br/>
   Context: stream, server <br/>
 
-  Close connection if client-provided server domain matches no replacement.
+  Close connection if client-provided server hostname matches no replacement.
 
-- Syntax: `minecraft_server_do_replace_on_ping  off|on;` <br/>
-  Default: `minecraft_server_do_replace_on_ping  on;` <br/>
+- Syntax: `minecraft_server_hostname_replace_on_ping  off|on;` <br/>
+  Default: `minecraft_server_hostname_replace_on_ping  on;` <br/>
   Context: stream, server <br/>
 
-    When a client starts pinging, replace client-provided server hostname or ip with a new hostname before proxying to remote Minecraft server. This option is recommended pinging servers behind third-party services (e.g. TCPShield.com) that impose inspection of pinging packets.
+  When a client starts pinging, replace client-provided server hostname with a new hostname before proxying to remote Minecraft server. This option is recommended pinging servers behind third-party services (e.g. TCPShield.com) that impose inspection of pinging packets.
