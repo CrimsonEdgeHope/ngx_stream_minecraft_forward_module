@@ -258,11 +258,11 @@ static ngx_int_t ngx_stream_minecraft_forward_module_preread(ngx_stream_session_
         if (ctx == NULL) {
             return NGX_ERROR;
         }
-        ctx->remote_hostname = NULL;
         ctx->phase = HANDSHAKE_PHASE;
-        ctx->fail = 0;
         ctx->preread_pass = 0;
         ctx->pinged = 0;
+        ctx->remote_hostname = NULL;
+        ctx->fail = 0;
         ngx_stream_set_ctx(s, ctx, ngx_stream_minecraft_forward_module);
     }
 
@@ -324,15 +324,20 @@ static ngx_int_t ngx_stream_minecraft_forward_module_preread(ngx_stream_session_
         }
         bufpos += byte_len;
 
-        hostname_str = parse_string_from_packet(c, bufpos, prefix_len);
-        if (hostname_str == NULL) {
-            ngx_log_error(NGX_LOG_ALERT, c->log, 0, "Cannot retrieve hostname");
-            goto preread_failure;
-        }
+        if (ctx->remote_hostname == NULL) {
+            hostname_str = parse_string_from_packet(c, bufpos, prefix_len);
+            if (hostname_str == NULL) {
+                ngx_log_error(NGX_LOG_ALERT, c->log, 0, "Cannot retrieve hostname");
+                goto preread_failure;
+            }
 
-        ctx->remote_hostname = hostname_str;
-        ctx->remote_hostname_len = prefix_len;
-        bufpos += prefix_len;
+            ctx->remote_hostname = hostname_str;
+            ctx->remote_hostname_len = prefix_len;
+            bufpos += prefix_len;
+        } else {
+            hostname_str = ctx->remote_hostname;
+            bufpos += ctx->remote_hostname_len;
+        }
 
         ctx->remote_port |= (bufpos[0] << 8);
         ctx->remote_port |= bufpos[1];
