@@ -4,21 +4,18 @@
 #include <ngx_stream.h>
 #include <ngx_string.h>
 
-#ifndef _NGX_STREAM_MINECRAFT_FORWARD_MODULE_H
-#define _NGX_STREAM_MINECRAFT_FORWARD_MODULE_H
+#ifndef _NGX_STREAM_MINECRAFT_FORWARD_MODULE_H_
+#define _NGX_STREAM_MINECRAFT_FORWARD_MODULE_H_
 
 typedef struct {
     ngx_hash_t hostname_map;
     ngx_hash_init_t hostname_map_init;
-    /* Both `key` and `value` are `ngx_str_t *` */
-    ngx_hash_keys_arrays_t hostname_map_keys;
+    ngx_hash_keys_arrays_t hostname_map_keys; /* Both `key` and `value` are `ngx_str_t *` */
     size_t hash_max_size;
     size_t hash_bucket_size;
 
     ngx_flag_t replace_on_ping;
-
     ngx_flag_t disconnect_on_nomatch;
-
     ngx_flag_t enabled;
 } ngx_stream_minecraft_forward_module_srv_conf_t;
 
@@ -37,11 +34,13 @@ typedef struct {
 
     size_t expected_packet_len; /* Derived from the preceding varint. */
 
+    u_short fail : 1;
+
+    ngx_pool_t *pool;
+
     ngx_chain_t *filter_free;
     ngx_chain_t *filter_busy;
-
-    u_short fail : 1;
-} ngx_stream_minecraft_forward_module_ctx_t;
+} ngx_stream_minecraft_forward_ctx_t;
 
 extern ngx_module_t ngx_stream_minecraft_forward_module;
 

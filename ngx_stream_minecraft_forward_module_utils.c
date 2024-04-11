@@ -19,7 +19,8 @@ ngx_int_t read_minecraft_varint(u_char *buf, size_t *byte_len) {
     ngx_int_t value = 0;
     ngx_int_t bit_pos = 0;
     u_char *byte = buf;
-    while (1) {
+
+    for (;;) {
         if (byte == NULL) {
             return -1;
         }
@@ -32,7 +33,8 @@ ngx_int_t read_minecraft_varint(u_char *buf, size_t *byte_len) {
         bit_pos += 7;
 
         if (bit_pos >= 32) {
-            return -1;
+            value = -1;
+            break;
         }
 
         ++byte;
@@ -60,21 +62,23 @@ ngx_int_t read_minecraft_varint(u_char *buf, size_t *byte_len) {
  \returns Nginx buffer pointer that passes over the parsed varint bytes. If failure, NULL.
 */
 u_char *parse_packet_length(ngx_stream_session_t *s, u_char *bufpos, size_t *varint_byte_len) {
+    size_t vl;
+    size_t packet_len;
+
+    ngx_stream_minecraft_forward_ctx_t *ctx;
+
     if (s == NULL) {
         return NULL;
     }
 
-    ngx_stream_minecraft_forward_module_ctx_t *ctx;
     ctx = ngx_stream_get_module_ctx(s, ngx_stream_minecraft_forward_module);
 
     if (ctx == NULL || bufpos == NULL) {
         return NULL;
     }
 
-    size_t vl;
-    size_t packet_len;
-
     packet_len = read_minecraft_varint(bufpos, &vl);
+
     if (packet_len <= 0) {
         ngx_log_error(NGX_LOG_WARN, s->connection->log, 0, "Unexpected varint value (decoded: %d). At this moment, a correct packet with content is expected", packet_len);
         return NULL;
@@ -95,21 +99,24 @@ u_char *parse_packet_length(ngx_stream_session_t *s, u_char *bufpos, size_t *var
  String follows varint. Retrieve a string and store in an unsigned char array.
  The char array's memory is allocated from the nginx connection object's memory pool.
 
- \param *c       Nginx connection object pointer.
+ \param *pool    Nginx memory pool pointer.
  \param *bufpos  Nginx buffer pointer.
  \param len      String length.
 
  \returns Pointer to an unsigned char array that stores string. If failure, NULL.
 */
-u_char *parse_string_from_packet(ngx_connection_t *c, u_char *bufpos, size_t len) {
-    if (c == NULL || bufpos == NULL) {
+u_char *parse_string_from_packet(ngx_pool_t *pool, u_char *bufpos, size_t len) {
+    if (pool == NULL || bufpos == NULL) {
         return NULL;
     }
+
     u_char *rs;
-    rs = ngx_pcalloc(c->pool, (len + 1) * sizeof(u_char));
+
+    rs = ngx_pcalloc(pool, (len + 1) * sizeof(u_char));
     if (rs == NULL) {
         return NULL;
     }
+
     ngx_memcpy(rs, bufpos, len);
     rs[len] = '\0';
     return rs;
@@ -120,26 +127,28 @@ u_char *parse_string_from_packet(ngx_connection_t *c, u_char *bufpos, size_t len
  Convert an integer value to varint bytes and store in an unsigned char array.
  The char array's memory is allocated from the nginx connection object's memory pool.
 
- \param *c         Nginx connection object pointer.
+ \param *pool      Nginx memory pool pointer.
  \param value      Integer to be converted. Must be non-negative.
  \param *byte_len  A `size_t` pointer to which the length of varint bytes will be stored. Optional, pass `NULL` if no need.
 
  \returns Pointer to an unsigned char array that stores varint. If failure, NULL.
 */
-u_char *create_minecraft_varint(ngx_connection_t *c, ngx_int_t value, size_t *byte_len) {
-    if (c == NULL || value < 0) {
+u_char *create_minecraft_varint(ngx_pool_t *pool, ngx_int_t value, size_t *byte_len) {
+    u_char *varint;
+
+    ngx_int_t v = value;
+    ngx_uint_t i = 0;
+    ngx_uint_t msb = 0;
+    ngx_uint_t count = 0;
+
+    if (pool == NULL || value < 0) {
         return NULL;
     }
 
-    u_char *varint = ngx_pcalloc(c->pool, sizeof(u_char) * VARINT_MAX_BYTE_LEN);
+    varint = ngx_pcalloc(pool, sizeof(u_char) * VARINT_MAX_BYTE_LEN);
     if (varint == NULL) {
         return NULL;
     }
-
-    ngx_int_t v = value;
-    u_int i = 0;
-    u_int msb = 0;
-    u_int count = 0;
 
     while (v > 0) {
         i = v & 0x7F;
