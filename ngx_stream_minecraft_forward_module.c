@@ -682,6 +682,8 @@ static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_s
     if (append_i == NULL) {
         goto filter_failure;
     }
+    append_i->buf = NULL;
+    append_i->next = NULL;
 
     if (split_remnant_chain != NULL) {
         if (target_chain_node->next != NULL) {
@@ -699,7 +701,7 @@ static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_s
         append_i->next = target_chain_node->next->next;
     }
 
-    if (append_i->buf != NULL) {
+    if (append_i->buf) {
         *link_i = append_i;
         link_i = &append_i->next;
     }
