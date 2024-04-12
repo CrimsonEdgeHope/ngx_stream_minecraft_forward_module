@@ -22,7 +22,8 @@ ngx_int_t read_minecraft_varint(u_char *buf, size_t *byte_len) {
 
     for (;;) {
         if (byte == NULL) {
-            return -1;
+            value = -1;
+            break;
         }
 
         value |= (*byte & 0x7F) << bit_pos;
@@ -80,7 +81,7 @@ u_char *parse_packet_length(ngx_stream_session_t *s, u_char *bufpos, size_t *var
     packet_len = read_minecraft_varint(bufpos, &vl);
 
     if (packet_len <= 0) {
-        ngx_log_error(NGX_LOG_WARN, s->connection->log, 0, "Unexpected varint value (decoded: %d). At this moment, a correct packet with content is expected", packet_len);
+        ngx_log_error(NGX_LOG_ALERT, s->connection->log, 0, "Unexpected varint value (%d)", packet_len);
         return NULL;
     }
     ctx->expected_packet_len = packet_len;

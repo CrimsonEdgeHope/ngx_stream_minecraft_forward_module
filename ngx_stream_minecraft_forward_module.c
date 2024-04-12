@@ -562,6 +562,9 @@ static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_s
 
     // The whole packet is prefixed by a total length in varint.
     new_handshake_varint_bytes = create_minecraft_varint(ctx->pool, new_handshake_len, &new_handshake_varint_byte_len);
+    if (new_handshake_varint_bytes == NULL) {
+        goto filter_failure;
+    }
 
     size_t old_handshake_len = ctx->handshake_varint_byte_len + ctx->handshake_len;
     new_handshake_len = new_handshake_varint_byte_len + new_handshake_len;
@@ -658,8 +661,9 @@ static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_s
 
         split_remnant_chain->buf->last = ngx_cpymem(split_remnant_chain->buf->pos, target_chain_node->buf->last - split_remnant_len, split_remnant_len);
     }
-    ngx_log_error(NGX_LOG_INFO, c->log, 0, "Filter: Provided hostname: %s, "
-                                           "New hostname string: %s",
+    ngx_log_error(NGX_LOG_INFO, c->log, 0,
+                  "Filter: Provided hostname: %s, "
+                  "New hostname string: %s",
                   ctx->remote_hostname,
                   new_hostname_str);
 
@@ -674,27 +678,32 @@ static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_s
     *link_i = new_chain;
     link_i = &new_chain->next;
 
-    if (split_remnant_chain != NULL) {
-        append_i = ngx_alloc_chain_link(c->pool);
-        if (append_i == NULL) {
-            goto filter_failure;
-        }
+    append_i = ngx_alloc_chain_link(c->pool);
+    if (append_i == NULL) {
+        goto filter_failure;
+    }
 
+    if (split_remnant_chain != NULL) {
         if (target_chain_node->next != NULL) {
             *link_i = split_remnant_chain;
             link_i = &split_remnant_chain->next;
 
             append_i->buf = target_chain_node->next->buf;
+            append_i->next = target_chain_node->next->next;
         } else {
             append_i->buf = split_remnant_chain->buf;
+            append_i->next = split_remnant_chain->next;
         }
+    } else if (target_chain_node->next != NULL) {
+        append_i->buf = target_chain_node->next->buf;
+        append_i->next = target_chain_node->next->next;
     }
-    if (append_i) {
+
+    if (append_i->buf != NULL) {
         *link_i = append_i;
         link_i = &append_i->next;
     }
 
-    *link_i = NULL;
 
     // https://hg.nginx.org/njs/file/77e4b95109d4/nginx/ngx_stream_js_module.c#l585
     // https://mailman.nginx.org/pipermail/nginx-devel/2022-January/6EUIJQXVFHMRZP3L5SJNWPJKQPROWA7U.html
@@ -705,7 +714,6 @@ static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_s
             break;
         }
     }
-    target_chain_node = NULL;
 
     rc = ngx_stream_next_filter(s, chain_out, from_upstream);
     ngx_chain_update_chains(c->pool, &ctx->filter_free, &ctx->filter_busy, &chain_out, (ngx_buf_tag_t)&ngx_stream_minecraft_forward_module);
@@ -715,7 +723,7 @@ static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_s
             switch (rc) {
                 case NGX_OK:
                     goto end_of_filter;
-                case NGX_AGAIN: // What to do with this?
+                case NGX_AGAIN:
                 case NGX_ERROR:
                 default:
                     goto filter_failure;
