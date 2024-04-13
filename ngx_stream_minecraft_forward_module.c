@@ -427,12 +427,13 @@ static ngx_int_t ngx_stream_minecraft_forward_module_preread(ngx_stream_session_
     }
 
 end_of_preread:
-    ngx_log_error(NGX_LOG_INFO, c->log, 0, "Preread: Protocol num: %d, "
-                                           "Hostname provided: %s, "
-                                           "Username: %s, "
-                                           "UUID: %s, "
-                                           "Next state: %s",
-                  protocol_num,
+    ngx_log_error(NGX_LOG_INFO, c->log, 0,
+                  "Preread: Protocol num: %d, "
+                  "Hostname provided: %s, "
+                  "Username: %s, "
+                  "UUID: %s, "
+                  "Next state: %s",
+                  ctx->protocol_num,
                   hostname_str ? hostname_str : (u_char *)"*Missing*",
                   username_str ? username_str : (u_char *)"*Missing*",
                   uuid ? uuid : (u_char *)"*Missing*",
@@ -567,6 +568,7 @@ static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_s
     }
 
     size_t old_handshake_len = ctx->handshake_varint_byte_len + ctx->handshake_len;
+    ngx_log_debug(NGX_LOG_DEBUG_STREAM, c->log, 0, "old_handshake_len: %d", old_handshake_len);
     new_handshake_len = new_handshake_varint_byte_len + new_handshake_len;
 
     ngx_chain_t *target_chain_node = NULL;
@@ -576,10 +578,14 @@ static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_s
 
     for (ngx_chain_t *ln = chain; ln != NULL; ln = ln->next) {
         in_buf_len = ngx_buf_size(ln->buf);
+        if (in_buf_len <= 0) {
+            goto filter_failure;
+        }
         gathered_len += in_buf_len;
-        if (ln->buf->last_buf || ln->buf->last_in_chain) {
+        if (ln->buf->last_buf) {
             last = 1;
         }
+        ngx_log_debug(NGX_LOG_DEBUG_STREAM, c->log, 0, "gathered_len: %d", gathered_len);
         if (gathered_len >= old_handshake_len) {
             target_chain_node = ln;
             break;

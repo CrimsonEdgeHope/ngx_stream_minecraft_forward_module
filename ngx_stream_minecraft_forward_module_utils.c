@@ -6,6 +6,10 @@
 #include <ngx_stream.h>
 
 /*
+ Reference: https://wiki.vg/index.php?title=Protocol&oldid=7617#VarInt_and_VarLong
+*/
+
+/*
  Varint is used a lot in Minecraft packet.
  This function tries to parse varint and return actual integer value.
  Result should be non-negative. In case anything, it would return -1 indicating failure.
@@ -16,29 +20,30 @@
  \returns Actual int value represented by the varint. If read failure, -1.
 */
 ngx_int_t read_minecraft_varint(u_char *buf, size_t *byte_len) {
+
     ngx_int_t value = 0;
-    ngx_int_t bit_pos = 0;
-    u_char *byte = buf;
+    ngx_int_t position = 0;
+    u_char byte;
+    u_char *pos;
+
+    pos = buf;
 
     for (;;) {
-        if (byte == NULL) {
+        byte = *pos;
+        value |= (byte & 0x7F) << position;
+
+        if ((byte & 0x80) == 0) {
+            break;
+        }
+
+        position += 7;
+
+        if (position >= 32) {
             value = -1;
             break;
         }
 
-        value |= (*byte & 0x7F) << bit_pos;
-        if ((*byte & 0x80) == 0) {
-            break;
-        }
-
-        bit_pos += 7;
-
-        if (bit_pos >= 32) {
-            value = -1;
-            break;
-        }
-
-        ++byte;
+        ++pos;
     }
 
     if (value < 0) {
@@ -46,7 +51,7 @@ ngx_int_t read_minecraft_varint(u_char *buf, size_t *byte_len) {
     }
 
     if (byte_len != NULL) {
-        *byte_len = byte - buf + 1;
+        *byte_len = pos - buf + 1;
     }
     return value;
 }
@@ -137,28 +142,28 @@ u_char *parse_string_from_packet(ngx_pool_t *pool, u_char *bufpos, size_t len) {
 u_char *create_minecraft_varint(ngx_pool_t *pool, ngx_int_t value, size_t *byte_len) {
     u_char *varint;
 
-    ngx_int_t v = value;
-    ngx_uint_t i = 0;
-    ngx_uint_t msb = 0;
-    ngx_uint_t count = 0;
-
     if (pool == NULL || value < 0) {
         return NULL;
     }
+
+    ngx_uint_t v = value;
 
     varint = ngx_pcalloc(pool, sizeof(u_char) * VARINT_MAX_BYTE_LEN);
     if (varint == NULL) {
         return NULL;
     }
 
-    while (v > 0) {
-        i = v & 0x7F;
-        msb = i & 0x40;
-        msb <<= 1;
-        i |= msb;
-        varint[count] = (u_char)i;
+    ngx_uint_t count = 0;
+
+    for (;;) {
+        if ((v & ~0x7F) == 0) {
+            varint[count++] = v;
+            break;
+        }
+
+        varint[count++] = ((v & 0x7F) | 0x80);
+
         v >>= 7;
-        ++count;
     }
 
     if (byte_len != NULL) {
