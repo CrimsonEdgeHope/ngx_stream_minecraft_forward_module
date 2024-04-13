@@ -3,10 +3,8 @@
 The `ngx_stream_minecraft_forward_module` module attempts to modify [Handshake](https://wiki.vg/Protocol#Handshake) packet and inspect [Login Start](https://wiki.vg/Protocol#Login_Start) packet that's sent from client to server.
 
 > [!IMPORTANT]
->
 > - This module relies on [stream module](https://nginx.org/en/docs/stream/ngx_stream_core_module.html).
 > - Only suitable for Minecraft Java protocol since Netty rewrite.
-> - This module has been partially tested. (Thus, only a limited number of protocol versions are seen as acceptable, for now)
 > - Nginx no earlier than 1.11.5 can pass compilation with this module.
 
 ## Compilation
