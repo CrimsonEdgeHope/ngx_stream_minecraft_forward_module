@@ -21,10 +21,17 @@
 */
 ngx_int_t read_minecraft_varint(u_char *buf, size_t *byte_len) {
 
-    ngx_int_t value = 0;
-    ngx_int_t position = 0;
-    u_char byte;
-    u_char *pos;
+    if (!buf) {
+        return -1;
+    }
+
+    ngx_int_t value;
+    ngx_int_t position;
+    u_char    byte;
+    u_char   *pos;
+
+    value = 0;
+    position = 0;
 
     pos = buf;
 
@@ -68,9 +75,9 @@ ngx_int_t read_minecraft_varint(u_char *buf, size_t *byte_len) {
  \returns Nginx buffer pointer that passes over the parsed varint bytes. If failure, NULL.
 */
 u_char *parse_packet_length(ngx_stream_session_t *s, u_char *bufpos, size_t *varint_byte_len) {
-    size_t vl;
-    size_t packet_len;
 
+    size_t                              vl;
+    size_t                              packet_len;
     ngx_stream_minecraft_forward_ctx_t *ctx;
 
     if (s == NULL) {
@@ -140,20 +147,23 @@ u_char *parse_string_from_packet(ngx_pool_t *pool, u_char *bufpos, size_t len) {
  \returns Pointer to an unsigned char array that stores varint. If failure, NULL.
 */
 u_char *create_minecraft_varint(ngx_pool_t *pool, ngx_int_t value, size_t *byte_len) {
-    u_char *varint;
 
     if (pool == NULL || value < 0) {
         return NULL;
     }
 
-    ngx_uint_t v = value;
+    u_char    *varint;
+    ngx_uint_t v;
+    ngx_uint_t count;
+
+    v = value;
 
     varint = ngx_pcalloc(pool, sizeof(u_char) * VARINT_MAX_BYTE_LEN);
     if (varint == NULL) {
         return NULL;
     }
 
-    ngx_uint_t count = 0;
+    count = 0;
 
     for (;;) {
         if ((v & ~0x7F) == 0) {
@@ -184,7 +194,9 @@ ngx_int_t ngx_stream_minecraft_forward_module_srv_conf_validate_hostname(ngx_str
     if (!ngx_stream_minecraft_forward_module_srv_hostname_check_regex) {
         return NGX_OK;
     }
-    return ngx_regex_exec(ngx_stream_minecraft_forward_module_srv_hostname_check_regex, str, NULL, 0) >= 0 ? NGX_OK : NGX_ERROR;
+    return ngx_regex_exec(ngx_stream_minecraft_forward_module_srv_hostname_check_regex, str, NULL, 0) >= 0
+               ? NGX_OK
+               : NGX_ERROR;
 #else
     return NGX_OK;
 #endif
