@@ -10,12 +10,12 @@ The `ngx_stream_minecraft_forward_module` module attempts to modify [Handshake](
 ## Compilation
 
 ```shell
-wget -O "nginx.tar.gz" "https://nginx.org/download/nginx-1.24.0.tar.gz"
+NGINX_VER=1.24.0
+wget -O "nginx.tar.gz" "https://nginx.org/download/nginx-${NGINX_VER}.tar.gz"
 tar -xf nginx.tar.gz
-cd nginx-1.24.0
+cd nginx-${NGINX_VER}
 chmod +x configure
-git clone https://github.com/CrimsonEdgeHope/ngx_stream_minecraft_forward_module.git
-./configure --add-module=$(pwd)/ngx_stream_minecraft_forward_module --with-stream
+./configure --add-module=/path/to/ngx_stream_minecraft_forward_module --with-stream
 make
 ```
 
