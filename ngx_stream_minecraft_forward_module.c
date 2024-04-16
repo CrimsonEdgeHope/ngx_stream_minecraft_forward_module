@@ -341,7 +341,8 @@ static ngx_int_t ngx_stream_minecraft_forward_module_preread(ngx_stream_session_
     }
 
     if (bufpos[0] != (u_char)'\0') {
-        ngx_log_error(NGX_LOG_ALERT, c->log, 0, "Unexpected packet id (%d), 0x00 is expected", bufpos[0]);
+        ngx_log_error(NGX_LOG_ALERT, c->log, 0,
+                      "Unexpected packet id (%d), 0x00 is expected", bufpos[0]);
         goto preread_failure;
     }
     ++bufpos;
@@ -353,16 +354,26 @@ static ngx_int_t ngx_stream_minecraft_forward_module_preread(ngx_stream_session_
 
         protocol_num = read_minecraft_varint(bufpos, &varint_byte_len);
 
+        ngx_log_debug(NGX_LOG_DEBUG_STREAM, c->log, 0,
+                      "read varint, protocol num: %d", protocol_num);
+
         ctx->protocol_num = protocol_num;
+
         if (is_protocol_num_acceptable_by_ctx(ctx) != NGX_OK) {
-            ngx_log_error(NGX_LOG_WARN, c->log, 0, "Protocol number %d is not acceptable", protocol_num);
+            ngx_log_error(NGX_LOG_WARN, c->log, 0,
+                          "Protocol number %d is not acceptable", protocol_num);
             goto preread_failure;
         }
         bufpos += varint_byte_len;
 
         parsed_string_len = read_minecraft_varint(bufpos, &varint_byte_len);
+
+        ngx_log_debug(NGX_LOG_DEBUG_STREAM, c->log, 0,
+                      "read varint, host string len: %d", parsed_string_len);
+
         if (parsed_string_len <= 0) {
-            ngx_log_error(NGX_LOG_ALERT, c->log, 0, "There's a problem getting host string length (%d)", parsed_string_len);
+            ngx_log_error(NGX_LOG_ALERT, c->log, 0,
+                          "There's a problem getting host string length (%d)", parsed_string_len);
             goto preread_failure;
         }
         bufpos += varint_byte_len;
@@ -424,14 +435,20 @@ static ngx_int_t ngx_stream_minecraft_forward_module_preread(ngx_stream_session_
     }
 
     if (bufpos[0] != (u_char)'\0') {
-        ngx_log_error(NGX_LOG_ALERT, c->log, 0, "Unexpected packet id (%d), 0x00 is expected", bufpos[0]);
+        ngx_log_error(NGX_LOG_ALERT, c->log, 0,
+                      "Unexpected packet id (%d), 0x00 is expected", bufpos[0]);
         goto preread_failure;
     }
     ++bufpos;
 
     parsed_string_len = read_minecraft_varint(bufpos, &varint_byte_len);
+
+    ngx_log_debug(NGX_LOG_DEBUG_STREAM, c->log, 0,
+                  "read varint, username len: %d", parsed_string_len);
+
     if (parsed_string_len <= 0) {
-        ngx_log_error(NGX_LOG_ALERT, c->log, 0, "There's a problem getting username string length (%d)", parsed_string_len);
+        ngx_log_error(NGX_LOG_ALERT, c->log, 0,
+                      "There's a problem getting username string length (%d)", parsed_string_len);
         goto preread_failure;
     }
     if (parsed_string_len > 16) {
@@ -848,7 +865,6 @@ chain_update:
             switch (rc) {
                 case NGX_OK:
                     goto end_of_filter;
-                // ?
                 case NGX_AGAIN:
                     return rc;
                 case NGX_ERROR:
