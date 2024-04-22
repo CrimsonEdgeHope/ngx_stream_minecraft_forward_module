@@ -406,7 +406,7 @@ static ngx_int_t ngx_stream_minecraft_forward_module_preread(ngx_stream_session_
         } else if (bufpos[0] == (u_char)'\2') {
             ctx->phase = LOGIN_START_PHASE;
         } else {
-            ngx_log_error(NGX_LOG_EMERG, c->log, 0, "Unknown next state (%d)", bufpos[0]);
+            ngx_log_error(NGX_LOG_ALERT, c->log, 0, "Unknown next state (%d)", bufpos[0]);
             goto preread_failure;
         }
         ++bufpos;
@@ -573,7 +573,7 @@ static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_s
 
     c->log->action = "filtering minecraft packet";
     if (ctx->pinged) {
-        ngx_log_error(NGX_LOG_INFO, c->log, 0, "Closing connection because already used for pinging");
+        ngx_log_error(NGX_LOG_NOTICE, c->log, 0, "Closing connection because already used for pinging");
         goto filter_failure;
     }
 
@@ -643,7 +643,7 @@ static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_s
     new_hostname = get_new_hostname_str(sconf, ctx->remote_hostname, ctx->remote_hostname_len);
     if (new_hostname == NULL) {
         if (sconf->disconnect_on_nomatch) {
-            ngx_log_error(NGX_LOG_INFO, c->log, 0,
+            ngx_log_error(NGX_LOG_NOTICE, c->log, 0,
                           "Closing connection because of no hostname match");
             goto filter_failure;
         }
@@ -686,12 +686,14 @@ static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_s
         in_buf_len = ngx_buf_size(ln->buf);
 
         if (in_buf_len <= 0) {
+            ngx_log_error(NGX_LOG_ERR, c->log, 0, "negative size of or empty buffer encountered");
             goto filter_failure;
         }
 
         gathered_buf_len += in_buf_len;
         if (ln->buf->last_buf) {
             if (gathered_buf_len < old_handshake_len) {
+                ngx_log_error(NGX_LOG_ERR, c->log, 0, "Incomplete chain of buffer");
                 goto filter_failure;
             }
         }
@@ -709,11 +711,13 @@ static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_s
 
     new_chain = ngx_chain_get_free_buf(c->pool, &ctx->filter_free);
     if (new_chain == NULL) {
+        ngx_log_error(NGX_LOG_EMERG, c->log, 0, "Cannot get free buf chain to store new handshake");
         goto filter_failure;
     }
 
     new_chain->buf->pos = ngx_pcalloc(c->pool, new_handshake_len * sizeof(u_char));
     if (new_chain->buf->pos == NULL) {
+        ngx_log_error(NGX_LOG_EMERG, c->log, 0, "Cannot initialize new chain buf space");
         goto filter_failure;
     }
 
@@ -878,6 +882,9 @@ chain_update:
 
 end_of_filter:
     rc = ctx->fail ? NGX_ERROR : rc;
+    if (ctx->fail) {
+        ngx_log_error(NGX_LOG_ERR, c->log, 0, "Filter failed");
+    }
     remove_module_ctx(s);
     return rc;
 
