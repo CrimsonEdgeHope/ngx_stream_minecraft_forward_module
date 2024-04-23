@@ -93,7 +93,9 @@ u_char *parse_packet_length(ngx_stream_session_t *s, u_char *bufpos, size_t *var
     packet_len = read_minecraft_varint(bufpos, &vl);
 
     if (packet_len <= 0) {
+#if (NGX_DEBUG)
         ngx_log_debug1(NGX_LOG_DEBUG_STREAM, s->connection->log, 0, "Read varint, get: %d", packet_len);
+#endif
         ngx_log_error(NGX_LOG_ALERT, s->connection->log, 0, "Unexpected varint value (%d)", packet_len);
         return NULL;
     }
