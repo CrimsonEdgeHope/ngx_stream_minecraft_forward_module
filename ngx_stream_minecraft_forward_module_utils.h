@@ -1,9 +1,9 @@
+#ifndef _NGX_STREAM_MINECRAFT_FORWARD_MODULE_UTILS_H_
+#define _NGX_STREAM_MINECRAFT_FORWARD_MODULE_UTILS_H_
+
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_stream.h>
-
-#ifndef _NGX_STREAM_MINECRAFT_FORWARD_MODULE_UTILS_H_
-#define _NGX_STREAM_MINECRAFT_FORWARD_MODULE_UTILS_H_
 
 ngx_int_t read_minecraft_varint(u_char *buf, size_t *byte_len);
 
@@ -15,6 +15,8 @@ u_char *create_minecraft_varint(ngx_pool_t *pool, ngx_int_t value, size_t *byte_
 
 ngx_int_t ngx_stream_minecraft_forward_module_srv_conf_validate_hostname(ngx_str_t *str);
 
-#define VARINT_MAX_BYTE_LEN 5
+#define _MC_VARINT_MAX_BYTE_LEN_ 5
+#define _MINECRAFT_PORT_LEN_ sizeof(u_short)
+#define _UUID_LEN_ 32
 
 #endif

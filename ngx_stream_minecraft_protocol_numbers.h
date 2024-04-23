@@ -4,10 +4,10 @@
  https://wiki.vg
 */
 
-#include "ngx_stream_minecraft_forward_module.h"
-
 #ifndef _NGX_STREAM_MINECRAFT_PROTOCOL_NUMBERS_H_
 #define _NGX_STREAM_MINECRAFT_PROTOCOL_NUMBERS_H_
+
+#include "ngx_stream_minecraft_forward_module.h"
 
 #define MINECRAFT_1_8 47
 #define MINECRAFT_1_8_1 47
