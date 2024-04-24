@@ -101,13 +101,11 @@ u_char *parse_packet_length(ngx_stream_session_t *s, u_char *bufpos, size_t *var
     }
     ctx->expected_packet_len = packet_len;
 
-    bufpos += vl;
-
     if (varint_byte_len != NULL) {
         *varint_byte_len = vl;
     }
 
-    return bufpos;
+    return bufpos + vl;
 }
 
 
