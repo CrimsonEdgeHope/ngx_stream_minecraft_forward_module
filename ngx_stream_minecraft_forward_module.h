@@ -1,11 +1,32 @@
+#ifndef _NGX_STREAM_MINECRAFT_FORWARD_MODULE_H_
+#define _NGX_STREAM_MINECRAFT_FORWARD_MODULE_H_
+
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_hash.h>
 #include <ngx_stream.h>
 #include <ngx_string.h>
 
-#ifndef _NGX_STREAM_MINECRAFT_FORWARD_MODULE_H_
-#define _NGX_STREAM_MINECRAFT_FORWARD_MODULE_H_
+typedef ngx_int_t (*ngx_stream_minecraft_preread_handler)(ngx_stream_session_t *s);
+
+typedef struct {
+    ngx_str_t  varint;
+} ngx_stream_minecraft_varint_t;
+
+typedef struct {
+    ngx_str_t                      content;
+    ngx_stream_minecraft_varint_t  varint_of_length;
+} ngx_stream_minecraft_packet_t;
+
+typedef struct {
+    ngx_stream_minecraft_varint_t  original;
+    ngx_int_t                      number;
+} ngx_stream_minecraft_protocol_number_t;
+
+typedef struct {
+    ngx_str_t                      text;
+    ngx_stream_minecraft_varint_t  varint_of_length;
+} ngx_stream_minecraft_str_t;
 
 typedef struct {
     ngx_hash_t             hostname_map;
@@ -20,28 +41,30 @@ typedef struct {
 } ngx_stream_minecraft_forward_module_srv_conf_t;
 
 typedef struct {
-    u_short      phase;
-    u_short      preread_pass : 1;
-    u_short      pinged : 1;
+    ngx_stream_minecraft_preread_handler     preread_handler;
 
-    ngx_int_t    protocol_num; /* Minecraft Java protocol version number since Netty rewrite. */
-    u_char      *remote_hostname;
-    size_t       remote_hostname_len; /* String has preceding varint that indicates string length. */
-    u_short      remote_port;
+    ngx_int_t                                preread_pass : 1;
+    ngx_int_t                                pinged : 1;
+    ngx_int_t                                fail : 1;
 
-    size_t       handshake_varint_byte_len; /* The varint itself, 5 at most. */
-    size_t       handshake_len;             /* The handshake packet's length, derived from the preceding varint. */
+    ngx_pool_t                              *pool;
 
-    size_t       expected_packet_len; /* Derived from the preceding varint. */
+    u_short                                  state : 2;
 
-    u_short      fail : 1;
+    ngx_stream_minecraft_protocol_number_t   protocol;
+    ngx_stream_minecraft_str_t               provided_hostname;
+    u_short                                  remote_port;
+    ngx_stream_minecraft_str_t               username;
+    ngx_stream_minecraft_str_t               uuid_byte;
+    ngx_str_t                                uuid;
 
-    ngx_pool_t  *pool;
+    ngx_stream_minecraft_packet_t           *handshake;
+    ngx_stream_minecraft_packet_t           *loginstart;
 
-    ngx_chain_t *out;
-
-    ngx_chain_t *filter_free;
-    ngx_chain_t *filter_busy;
+    ngx_chain_t                             *in;
+    ngx_chain_t                             *out;
+    ngx_chain_t                             *free_chain;
+    ngx_chain_t                             *busy_chain;
 } ngx_stream_minecraft_forward_ctx_t;
 
 extern ngx_module_t ngx_stream_minecraft_forward_module;
