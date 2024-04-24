@@ -1,11 +1,11 @@
-#ifndef _NGX_STREAM_MINECRAFT_FORWARD_MODULE_H_
-#define _NGX_STREAM_MINECRAFT_FORWARD_MODULE_H_
-
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_hash.h>
 #include <ngx_stream.h>
 #include <ngx_string.h>
+
+#ifndef _NGX_STREAM_MINECRAFT_FORWARD_MODULE_H_
+#define _NGX_STREAM_MINECRAFT_FORWARD_MODULE_H_
 
 typedef struct {
     ngx_hash_t             hostname_map;
@@ -19,48 +19,29 @@ typedef struct {
     ngx_flag_t             enabled;
 } ngx_stream_minecraft_forward_module_srv_conf_t;
 
-typedef ngx_int_t (*ngx_stream_minecraft_forward_module_preread_handler_pt)(ngx_stream_session_t *s);
-
 typedef struct {
-    ngx_stream_minecraft_forward_module_preread_handler_pt  preread_handler;
+    u_short      phase;
+    u_short      preread_pass : 1;
+    u_short      pinged : 1;
 
-    u_short       state : 2;
+    ngx_int_t    protocol_num; /* Minecraft Java protocol version number since Netty rewrite. */
+    u_char      *remote_hostname;
+    size_t       remote_hostname_len; /* String has preceding varint that indicates string length. */
+    u_short      remote_port;
 
-    u_short       preread_pass : 1;
-    u_short       pinged : 1;
-    u_short       fail : 1;
+    size_t       handshake_varint_byte_len; /* The varint itself, 5 at most. */
+    size_t       handshake_len;             /* The handshake packet's length, derived from the preceding varint. */
 
-    ngx_pool_t   *pool;
+    size_t       expected_packet_len; /* Derived from the preceding varint. */
 
-    ngx_int_t     protocol_num;
-    ngx_str_t     protocol_num_varint;
+    u_short      fail : 1;
 
-    ngx_str_t     provided_hostname;
-    size_t        provided_hostname_varint_byte_len;
+    ngx_pool_t  *pool;
 
-    u_short       remote_port;
+    ngx_chain_t *out;
 
-    ngx_str_t     username;
-    size_t        username_varint_byte_len;
-    ngx_str_t     uuid;
-
-    size_t        handshake_varint_byte_len;   /* The varint itself, 5 at most. */
-    size_t        handshake_len;               /* The handshake packet's length, derived from the preceding varint. */
-
-    size_t        loginstart_varint_byte_len;
-    size_t        loginstart_len;              /* The loginstart packet's length. */
-
-    size_t        expected_packet_len;         /* Derived from the preceding varint. */
-
-#if (nginx_version >= 1025005)
-    ngx_chain_t  *in;
-#endif
-
-    // https://nginx.org/en/docs/dev/development_guide.html#http_body_buffers_reuse
-
-    ngx_chain_t  *out;
-    ngx_chain_t  *free_chain;
-    ngx_chain_t  *busy_chain;
+    ngx_chain_t *filter_free;
+    ngx_chain_t *filter_busy;
 } ngx_stream_minecraft_forward_ctx_t;
 
 extern ngx_module_t ngx_stream_minecraft_forward_module;
