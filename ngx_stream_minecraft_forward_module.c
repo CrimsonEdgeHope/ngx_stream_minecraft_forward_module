@@ -191,12 +191,12 @@ static char *ngx_stream_minecraft_forward_module_srv_conf_minecraft_server_hostn
 
     if (ngx_stream_minecraft_forward_module_srv_conf_validate_hostname(key) != NGX_OK) {
         ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
-                           "Invalid entry: %s", key->data ? key->data : (u_char *)"*NULL*");
+                           "Invalid entry: %V", key);
         return NGX_CONF_ERROR;
     }
     if (ngx_stream_minecraft_forward_module_srv_conf_validate_hostname(val) != NGX_OK) {
         ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
-                           "Invalid value: %s", val->data ? val->data : (u_char *)"*NULL*");
+                           "Invalid value: %V", key);
         return NGX_CONF_ERROR;
     }
 
@@ -521,7 +521,7 @@ static ngx_int_t ngx_stream_minecraft_forward_module_handshake_preread(ngx_strea
         );
 
         ngx_log_debug(NGX_LOG_DEBUG_STREAM, c->log, 0,
-                      "read hostname: %s", ctx->provided_hostname.text.data);
+                      "read hostname: %V", &ctx->provided_hostname.text);
 
     } else {
         bufpos += ctx->provided_hostname.varint_of_length.varint.len;
@@ -602,11 +602,10 @@ static ngx_int_t ngx_stream_minecraft_forward_module_handshake_preread(ngx_strea
 
             ngx_log_error(NGX_LOG_INFO, c->log, 0,
                           "Preread: Protocol number: %d, "
-                          "Hostname provided: %s, "
+                          "Hostname provided: %V, "
                           "Next state: %d",
                           ctx->protocol.number,
-                          ctx->provided_hostname.text.data
-                              ? ctx->provided_hostname.text.data : (u_char *)"*Missing*",
+                          &ctx->provided_hostname.text,
                           ctx->state);
 
             return NGX_OK;
@@ -752,7 +751,7 @@ static ngx_int_t ngx_stream_minecraft_forward_module_loginstart_preread(ngx_stre
         );
 
         ngx_log_debug(NGX_LOG_DEBUG_STREAM, c->log, 0,
-                      "read username: %s", ctx->username.text.data);
+                      "read username: %V", &ctx->username.text);
 
     } else {
         bufpos += ctx->username.varint_of_length.varint.len;
@@ -808,7 +807,7 @@ static ngx_int_t ngx_stream_minecraft_forward_module_loginstart_preread(ngx_stre
                 ctx->uuid_byte.text.len
             );
 
-            ngx_log_debug(NGX_LOG_DEBUG_STREAM, c->log, 0, "read uuid: %s", ctx->uuid.data);
+            ngx_log_debug(NGX_LOG_DEBUG_STREAM, c->log, 0, "read uuid: %V", &ctx->uuid);
         }
 
         bufpos += _MC_UUID_BYTE_LEN_;
@@ -839,14 +838,14 @@ static ngx_int_t ngx_stream_minecraft_forward_module_loginstart_preread(ngx_stre
 
     ngx_log_error(NGX_LOG_INFO, c->log, 0,
                   "Preread: Protocol number: %d, "
-                  "Hostname provided: %s, "
-                  "Username: %s, "
-                  "UUID: %s, "
+                  "Hostname provided: %V, "
+                  "Username: %V, "
+                  "UUID: %V, "
                   "Next state: %d",
                   ctx->protocol.number,
-                  ctx->provided_hostname.text.data ? ctx->provided_hostname.text.data : (u_char *)"*Missing*",
-                  ctx->username.text.data ? ctx->username.text.data : (u_char *)"*Missing*",
-                  ctx->uuid.data ? ctx->uuid.data : (u_char *)"*Missing*",
+                  &ctx->provided_hostname.text,
+                  &ctx->username.text,
+                  &ctx->uuid,
                   ctx->state);
 
     ctx->preread_pass = 1;
@@ -1062,7 +1061,7 @@ static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_s
         goto filter_failure;
     }
 
-    new_chain->buf->pos = ngx_pcalloc(c->pool, new_handshake_len * sizeof(u_char));
+    new_chain->buf->pos = ngx_pcalloc(c->pool, new_handshake_len);
     if (new_chain->buf->pos == NULL) {
         ngx_log_error(NGX_LOG_EMERG, c->log, 0, "Cannot initialize new chain buf space");
         goto filter_failure;
@@ -1119,7 +1118,7 @@ static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_s
             goto filter_failure;
         }
 
-        split_remnant_chain->buf->pos = ngx_pcalloc(c->pool, split_remnant_len * sizeof(u_char));
+        split_remnant_chain->buf->pos = ngx_pcalloc(c->pool, split_remnant_len);
         if (split_remnant_chain->buf->pos == NULL) {
             ngx_log_error(NGX_LOG_EMERG, c->log, 0, "Cannot initialize split remnant new buf space");
             goto filter_failure;
@@ -1137,9 +1136,9 @@ static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_s
     }
 
     ngx_log_error(NGX_LOG_INFO, c->log, 0,
-                  "Filter: Provided hostname: %s, "
+                  "Filter: Provided hostname: %V, "
                   "New hostname string: %s",
-                  ctx->provided_hostname.text.data,
+                  &ctx->provided_hostname.text,
                   new_hostname_str);
 
 
