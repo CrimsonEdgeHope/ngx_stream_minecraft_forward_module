@@ -867,7 +867,6 @@ static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_s
     ngx_connection_t                               *c;
 
     ngx_int_t                                       rc;
-    size_t                                          vp;
 
     ngx_stream_minecraft_forward_ctx_t             *ctx;
     ngx_stream_minecraft_forward_module_srv_conf_t *sconf;
@@ -886,7 +885,6 @@ static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_s
     size_t                                          new_hostname_varint_byte_len;
     size_t                                          new_hostname_str_len;
 
-    u_char                                         *bufpos;
     u_char                                          pchar;
 
     size_t                                          in_buf_len;
@@ -920,26 +918,13 @@ static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_s
     sconf = ngx_stream_get_module_srv_conf(s, ngx_stream_minecraft_forward_module);
 
     if (from_upstream) {
+        rc = ngx_stream_next_filter(s, chain, from_upstream);
         if (ctx->state == _MC_HANDSHAKE_STATUS_STATE_) {
-
-            bufpos = parse_packet_length(s, c->buffer->pos, &vp, NULL);
-
-            if (bufpos == NULL) {
-                if (c->buffer->last - c->buffer->pos < _MC_VARINT_MAX_BYTE_LEN_) {
-                    return NGX_AGAIN;
-                }
-                return NGX_ERROR;
-            }
-
-            if (c->buffer->last - bufpos < (ssize_t)vp) {
-                return NGX_AGAIN;
-            }
-
-            if (!ctx->pinged) {
+            if (rc == NGX_OK) {
                 ctx->pinged = 1;
             }
         }
-        return ngx_stream_next_filter(s, chain, from_upstream);
+        return rc;
     }
 
     if (!sconf->replace_on_ping && ctx->state != _MC_HANDSHAKE_LOGINSTART_STATE_) {
@@ -1222,7 +1207,9 @@ chain_update:
 end_of_filter:
     rc = ctx->fail ? NGX_ERROR : rc;
     if (ctx->fail) {
-        ngx_log_error(NGX_LOG_ERR, c->log, 0, "Filter failed");
+        if (!ctx->pinged) {
+            ngx_log_error(NGX_LOG_ERR, c->log, 0, "Filter failed");
+        }
     }
     remove_module_ctx(s);
     return rc;
