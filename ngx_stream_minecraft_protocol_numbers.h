@@ -7,6 +7,8 @@
 #ifndef _NGX_STREAM_MINECRAFT_PROTOCOL_NUMBERS_H_
 #define _NGX_STREAM_MINECRAFT_PROTOCOL_NUMBERS_H_
 
+#include "ngx_stream_minecraft_forward_module.h"
+
 #define MINECRAFT_1_8 47
 #define MINECRAFT_1_8_1 47
 #define MINECRAFT_1_8_2 47
@@ -75,5 +77,7 @@
 #define MINECRAFT_1_20_2 764
 #define MINECRAFT_1_20_3 765
 #define MINECRAFT_1_20_4 765
+
+ngx_int_t is_protocol_num_acceptable(ngx_stream_minecraft_protocol_number_t nt);
 
 #endif
