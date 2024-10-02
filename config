@@ -10,8 +10,16 @@ STREAM_MODULES="$STREAM_MODULES $ngx_stream_addon_name"
 
 STREAM_MODULE_SRCS=" \
 $ngx_addon_dir/ngx_stream_minecraft_forward_module.c \
-$ngx_addon_dir/ngx_stream_minecraft_forward_module_utils.c \
-$ngx_addon_dir/ngx_stream_minecraft_protocol_numbers.c"
+$ngx_addon_dir/protocol/packet.c \
+$ngx_addon_dir/protocol/protocol_number.c \
+$ngx_addon_dir/utils/hostname.c \
+$ngx_addon_dir/utils/packet.c \
+$ngx_addon_dir/utils/varint.c"
 
 NGX_ADDON_SRCS="$NGX_ADDON_SRCS $STREAM_MODULE_SRCS"
-STREAM_INCS="$STREAM_INCS $ngx_addon_dir"
+
+STREAM_INCS="$STREAM_INCS \
+$ngx_addon_dir \
+$ngx_addon_dir/module \
+$ngx_addon_dir/protocol \
+$ngx_addon_dir/utils"

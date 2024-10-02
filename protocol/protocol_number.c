@@ -1,8 +1,10 @@
-#include <ngx_core.h>
-#include "ngx_stream_minecraft_protocol_numbers.h"
+#include "./protocol_number.h"
+#include "../utils/varint.h"
 
-ngx_int_t is_protocol_num_acceptable(ngx_stream_minecraft_protocol_number_t nt) {
-    switch (nt.number) {
+bool nsmfm_is_known_protocol(minecraft_varint var) {
+    switch (var.num) {
+        case MINECRAFT_1_21_1:
+        case MINECRAFT_1_20_6:
         case MINECRAFT_1_20_4:
         case MINECRAFT_1_20_2:
         case MINECRAFT_1_20_1:
@@ -41,8 +43,8 @@ ngx_int_t is_protocol_num_acceptable(ngx_stream_minecraft_protocol_number_t nt) 
         case MINECRAFT_1_9_1:
         case MINECRAFT_1_9:
         case MINECRAFT_1_8_9:
-            return NGX_OK;
+            return true;
         default:
-            return NGX_ERROR;
+            return false;
     }
 }
