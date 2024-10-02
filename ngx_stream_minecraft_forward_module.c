@@ -351,6 +351,7 @@ static ngx_int_t ngx_stream_minecraft_forward_module_handshake_preread(ngx_strea
 
     u_char                 *bufpos;
     ngx_int_t               var;
+    u_char                  p;
 
     ngx_flag_t              buffer_remanent;
     int                     byte_len;
@@ -456,7 +457,10 @@ static ngx_int_t ngx_stream_minecraft_forward_module_handshake_preread(ngx_strea
             ctx->in->buf->last = ngx_cpymem(ctx->in->buf->last, handshake->protocol_number.bytes, handshake->protocol_number.byte_len);
             ctx->in->buf->last = ngx_cpymem(ctx->in->buf->last, handshake->server_address.len.bytes, handshake->server_address.len.byte_len);
             ctx->in->buf->last = ngx_cpymem(ctx->in->buf->last, handshake->server_address.content, handshake->server_address.len.num);
-            ctx->in->buf->last = ngx_cpymem(ctx->in->buf->last, (u_char *)&handshake->server_port, _MC_PORT_LEN_);
+            p = (handshake->server_port & 0xFF00) >> 8;
+            ctx->in->buf->last = ngx_cpymem(ctx->in->buf->last, &p, 1);
+            p = (handshake->server_port & 0x00FF);
+            ctx->in->buf->last = ngx_cpymem(ctx->in->buf->last, &p, 1);
             ctx->in->buf->last = ngx_cpymem(ctx->in->buf->last, handshake->next_state.bytes, handshake->next_state.byte_len);
 
 #if (NGX_DEBUG)
@@ -637,7 +641,7 @@ static ngx_int_t ngx_stream_minecraft_forward_module_loginstart_preread(ngx_stre
                   handshake->protocol_number.num,
                   handshake->server_address.content,
                   loginstart->username.content,
-                  loginstart->uuid,
+                  handshake->protocol_number.num >= MINECRAFT_1_19_3 ? loginstart->uuid : (u_char *)"*None*",
                   ctx->state);
 
     ctx->preread_pass = true;
@@ -655,13 +659,12 @@ ngx_str_t *get_new_hostname_str(ngx_stream_minecraft_forward_module_srv_conf_t *
 static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_session_t *s, ngx_chain_t *chain, ngx_uint_t from_upstream) {
     ngx_connection_t                               *c;
     ngx_int_t                                       rc;
-    minecraft_varint                                var;
     nsmfm_session_context                          *ctx;
     ngx_stream_minecraft_forward_module_srv_conf_t *sconf;
 
     minecraft_handshake                            *old_handshake;
-    minecraft_varint                                old_handshake_len;
-    minecraft_varint                                new_handshake_len;
+    int                                             old_handshake_len; /* This includes varint byte len */
+    minecraft_varint                                new_handshake_content_len;
 
     minecraft_string                                new_hostname;
     minecraft_varint                                protocol_number;
@@ -777,19 +780,16 @@ response_pass:
     // https://wiki.vg/Protocol#Handshake
     // Packet id, Protocol Version varint, Prefixed string (Length varint + content), Server port, Next state.
     rc = 1 + protocol_number.byte_len + new_hostname.len.byte_len + new_hostname.len.num + _MC_PORT_LEN_ + 1;
-    fill_varint_object(rc, &var);
-    // The whole packet is prefixed by a total length in varint.
-    fill_varint_object(rc + var.byte_len, &new_handshake_len);
+    fill_varint_object(rc, &new_handshake_content_len);
 
-    rc = ctx->handshake->length.byte_len + ctx->handshake->length.num;
-    fill_varint_object(rc, &old_handshake_len);
+    old_handshake_len = ctx->handshake->length.byte_len + ctx->handshake->length.num;
 
 #if (NGX_DEBUG)
     ngx_log_debug(NGX_LOG_DEBUG_STREAM, c->log, 0,
                   "old_handshake_len (including varint): %d, "
-                  "new_handshake_len (including varint): %d",
-                  old_handshake_len.num,
-                  new_handshake_len.num);
+                  "new_handshake_len (content): %d",
+                  old_handshake_len,
+                  new_handshake_content_len.num);
 #endif
 
     target_chain_node = NULL;
@@ -807,8 +807,8 @@ response_pass:
 
         gathered_buf_len += in_buf_len;
         if (ln->buf->last_buf) {
-            if (gathered_buf_len < old_handshake_len.num) {
-                ngx_log_error(NGX_LOG_EMERG, c->log, 0, "Incomplete chain of buffer. Expected %d, gathered %d", old_handshake_len.num, gathered_buf_len);
+            if (gathered_buf_len < old_handshake_len) {
+                ngx_log_error(NGX_LOG_EMERG, c->log, 0, "Incomplete chain of buffer. Expected %d, gathered %d", old_handshake_len, gathered_buf_len);
                 goto filter_failure;
             }
         }
@@ -817,13 +817,13 @@ response_pass:
         ngx_log_debug(NGX_LOG_DEBUG_STREAM, c->log, 0, "gathered_buf_len: %d", gathered_buf_len);
 #endif
 
-        if (gathered_buf_len >= old_handshake_len.num) {
+        if (gathered_buf_len >= old_handshake_len) {
             target_chain_node = ln;
             break;
         }
     }
 
-    split_remnant_len = gathered_buf_len - old_handshake_len.num;
+    split_remnant_len = gathered_buf_len - old_handshake_len;
     split_remnant_chain = NULL;
 
     new_chain = ngx_chain_get_free_buf(c->pool, &ctx->free_chain);
@@ -832,7 +832,7 @@ response_pass:
         goto filter_failure;
     }
 
-    new_chain->buf->pos = ngx_pcalloc(c->pool, new_handshake_len.num * sizeof(u_char));
+    new_chain->buf->pos = ngx_pcalloc(c->pool, (new_handshake_content_len.num + new_handshake_content_len.byte_len) * sizeof(u_char));
     if (new_chain->buf->pos == NULL) {
         ngx_log_error(NGX_LOG_EMERG, c->log, 0, "Cannot initialize new chain buf space");
         goto filter_failure;
@@ -840,11 +840,11 @@ response_pass:
 
     new_chain->buf->start = new_chain->buf->pos;
     new_chain->buf->last = new_chain->buf->pos;
-    new_chain->buf->end = new_chain->buf->start + new_handshake_len.num;
+    new_chain->buf->end = new_chain->buf->start + (new_handshake_content_len.num + new_handshake_content_len.byte_len);
     new_chain->buf->tag = (ngx_buf_tag_t)&ngx_stream_minecraft_forward_module;
     new_chain->buf->memory = 1;
 
-    new_chain->buf->last = ngx_cpymem(new_chain->buf->last, new_handshake_len.bytes, new_handshake_len.byte_len);
+    new_chain->buf->last = ngx_cpymem(new_chain->buf->last, new_handshake_content_len.bytes, new_handshake_content_len.byte_len);
 
     pchar = _PACKET_ID_;
     new_chain->buf->last = ngx_cpymem(new_chain->buf->last, &pchar, 1);
@@ -854,17 +854,20 @@ response_pass:
     new_chain->buf->last = ngx_cpymem(new_chain->buf->last, new_hostname.len.bytes, new_hostname.len.byte_len);
     new_chain->buf->last = ngx_cpymem(new_chain->buf->last, new_hostname.content, new_hostname.len.num);
 
-    new_chain->buf->last = ngx_cpymem(new_chain->buf->last, (u_char *)&old_handshake->server_port, _MC_PORT_LEN_);
+    pchar = (old_handshake->server_port & 0xFF00) >> 8;
+    new_chain->buf->last = ngx_cpymem(new_chain->buf->last, &pchar, 1);
+    pchar = (old_handshake->server_port & 0x00FF);
+    new_chain->buf->last = ngx_cpymem(new_chain->buf->last, &pchar, 1);
 
     pchar = ctx->state;
     new_chain->buf->last = ngx_cpymem(new_chain->buf->last, &pchar, 1);
 
 #if (NGX_DEBUG)
     ngx_log_debug3(NGX_LOG_DEBUG_STREAM, c->log, 0,
-                   "new_handshake len: %d, "
+                   "new_handshake content len: %d, "
                    "protocol number: %d, "
                    "new_hostname len: %d",
-                   new_handshake_len.num,
+                   new_handshake_content_len.num,
                    old_handshake->protocol_number.num,
                    new_hostname.len.num);
 
