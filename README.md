@@ -1,23 +1,15 @@
 # Nginx Stream Module ngx_stream_minecraft_forward_module
 
-The `ngx_stream_minecraft_forward_module` module attempts to modify [Handshake](https://wiki.vg/Protocol#Handshake) packet and inspect [Login Start](https://wiki.vg/Protocol#Login_Start) packet that's sent from client to server.
+`ngx_stream_minecraft_forward_module` module is an Nginx module that's able to explicitly sieve Minecraft Java game traffic.
+
+## Features
+
+- Sieve and replace client-provided server hostname.
 
 > [!IMPORTANT]
 > - This module relies on [stream module](https://nginx.org/en/docs/stream/ngx_stream_core_module.html).
 > - Only suitable for Minecraft Java protocol since Netty rewrite.
 > - Nginx no earlier than 1.11.5 can pass compilation with this module.
-
-## Compilation
-
-```shell
-NGINX_VER=1.24.0
-wget -O "nginx.tar.gz" "https://nginx.org/download/nginx-${NGINX_VER}.tar.gz"
-tar -xf nginx.tar.gz
-cd nginx-${NGINX_VER}
-chmod +x configure
-./configure --add-module=/path/to/ngx_stream_minecraft_forward_module --with-stream
-make
-```
 
 ## Directives
 
@@ -68,4 +60,4 @@ minecraft_server_hostname  another.domain.for.example.com  new.domain.for.exampl
   Default: `minecraft_server_hostname_replace_on_ping  on;` <br/>
   Context: stream, server <br/>
 
-  When a client starts pinging, replace client-provided server hostname with a new hostname before proxying to remote Minecraft server. This option is recommended pinging servers behind third-party services (e.g. TCPShield.com) that impose inspection of pinging packets.
+  When a client starts pinging, replace client-provided server hostname with a new hostname before proxying to remote Minecraft server. This option is recommended pinging servers behind third-party services (e.g. TCPShield.com) that impose inspection on pinging packets.
