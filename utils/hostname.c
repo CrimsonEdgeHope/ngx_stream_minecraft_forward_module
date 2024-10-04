@@ -14,7 +14,7 @@ bool nsmfm_validate_hostname(ngx_str_t *str) {
 
 #if (NGX_PCRE)
     if (nsmfm_validate_hostname_regex == NULL) {
-        return NGX_OK;
+        return true;
     }
     return ngx_regex_exec(nsmfm_validate_hostname_regex, str, NULL, 0) >= 0;
 #else

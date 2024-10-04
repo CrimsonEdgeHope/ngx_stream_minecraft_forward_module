@@ -4,7 +4,6 @@
 #include "./utils/packet.h"
 #include "./utils/hostname.h"
 #include "./protocol/protocol_number.h"
-#include <stdbool.h>
 
 typedef struct {
     ngx_hash_t             hostname_map;
