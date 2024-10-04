@@ -1,7 +1,8 @@
 #include <ngx_core.h>
 #include <ngx_string.h>
 #include "../protocol/packet.h"
-#include "../utils/varint.h"
+#include "./varint.h"
+#include "./packet.h"
 
 ngx_int_t receive_packet_length(minecraft_packet *packet, u_char **bufpos, u_char *buflast, int *byte_len) {
     if (packet == NULL || bufpos == NULL || buflast == NULL || byte_len == NULL) {
@@ -32,14 +33,14 @@ ngx_int_t receive_packet_length(minecraft_packet *packet, u_char **bufpos, u_cha
     return NGX_OK;
 }
 
-ngx_int_t receive_packet(minecraft_packet *packet, u_char **bufpos, u_char *buflast, nsmfm_packet_init init, ngx_pool_t *pool) {
+ngx_int_t receive_packet(minecraft_packet *packet, u_char *bufpos, u_char *buflast, nsmfm_packet_init init, ngx_pool_t *pool) {
     if (packet == NULL || bufpos == NULL || buflast == NULL) {
         return NGX_ERROR;
     }
-    if (*bufpos == NULL) {
+    if (bufpos == NULL) {
         return NGX_ERROR;
     }
-    if (buflast - *bufpos < (ssize_t)packet->length.num) {
+    if (buflast - bufpos < (ssize_t)packet->length.num) {
         return NGX_AGAIN;
     }
     if (init != NULL) {
@@ -47,7 +48,6 @@ ngx_int_t receive_packet(minecraft_packet *packet, u_char **bufpos, u_char *bufl
             return NGX_ERROR;
         }
     }
-    (*bufpos) += packet->length.num;
     return NGX_OK;
 }
 

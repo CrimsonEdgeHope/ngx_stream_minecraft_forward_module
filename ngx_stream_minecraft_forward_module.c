@@ -30,7 +30,7 @@ static ngx_int_t ngx_stream_minecraft_forward_module_loginstart_preread(ngx_stre
 
 ngx_str_t *get_new_hostname_str(ngx_stream_minecraft_forward_module_srv_conf_t *sconf, u_char *buf, size_t len);
 
-static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_session_t *s, ngx_chain_t *chain, ngx_uint_t from_upstream);
+static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_session_t *s, ngx_chain_t *chain_in, ngx_uint_t from_upstream);
 
 static ngx_int_t ngx_stream_minecraft_forward_module_pre_init(ngx_conf_t *cf);
 static ngx_int_t ngx_stream_minecraft_forward_module_post_init(ngx_conf_t *cf);
@@ -39,7 +39,6 @@ ngx_stream_filter_pt ngx_stream_next_filter;
 
 #define _NGX_STREAM_MC_FORWARD_MODULE_DEFAULT_HASH_MAX_SIZE_ 512
 #define _NGX_STREAM_MC_FORWARD_MODULE_DEFAULT_HASH_BUCKET_SIZE_ 64
-#define _PACKET_ID_ 0
 
 static ngx_command_t ngx_stream_minecraft_forward_module_directives[] = {
     {ngx_string("minecraft_server_forward"),
@@ -266,6 +265,10 @@ void remove_session_context(ngx_stream_session_t *s) {
 
     ctx = ngx_stream_get_module_ctx(s, ngx_stream_minecraft_forward_module);
 
+#if (NGX_DEBUG)
+    ngx_log_debug0(NGX_LOG_DEBUG_STREAM, s->connection->log, 0, "Removing session context");
+#endif
+
     if (ctx) {
         if (ctx->pool) {
             ngx_destroy_pool(ctx->pool);
@@ -382,11 +385,10 @@ static ngx_int_t ngx_stream_minecraft_forward_module_handshake_preread(ngx_strea
 
     if (!ctx->handshake->content) {
         bufpos = ctx->bufpos;
-        var = receive_packet(ctx->handshake, &bufpos, c->buffer->last, nsmfm_handshake_packet_init, ctx->pool);
+        var = receive_packet(ctx->handshake, bufpos, c->buffer->last, nsmfm_handshake_packet_init, ctx->pool);
         if (var != NGX_OK) {
             return var;
         }
-        bufpos -= ctx->handshake->length.num;
         if (bufpos[0] != ctx->handshake->id.bytes[0]) {
             ngx_log_error(NGX_LOG_ALERT, c->log, 0, "Read unexpected packet id (%d), (%d) is expected", bufpos[0], ctx->handshake->id.bytes[0]);
             return NGX_ERROR;
@@ -409,20 +411,19 @@ static ngx_int_t ngx_stream_minecraft_forward_module_handshake_preread(ngx_strea
     }
 
     bufpos += handshake->protocol_number.byte_len;
-    ctx->bufpos = bufpos;
 
     var = retrieve_string(&bufpos, &handshake->server_address, ctx->pool);
     if (var != NGX_OK) {
         ngx_log_error(NGX_LOG_ALERT, c->log, 0, "Cannot read server hostname");
         return var;
     }
-    ctx->bufpos = bufpos;
+
     ngx_log_error(NGX_LOG_NOTICE, c->log, 0, "read hostname: %s", handshake->server_address.content);
 
     handshake->server_port |= (bufpos[0] << 8);
     handshake->server_port |= bufpos[1];
     bufpos += _MC_PORT_LEN_;
-    ctx->bufpos = bufpos;
+
     ngx_log_error(NGX_LOG_NOTICE, c->log, 0, "read remote port: %d", handshake->server_port);
 
     fill_varint_object(bufpos[0], &handshake->next_state);
@@ -485,31 +486,27 @@ static ngx_int_t ngx_stream_minecraft_forward_module_handshake_preread(ngx_strea
                           "Next state: %d",
                           handshake->protocol_number.num,
                           handshake->server_address.content,
-                          handshake->next_state.bytes[0]);
+                          handshake->next_state.num);
 
             if (buffer_remanent) {
-                ctx->in->buf->last = ngx_cpymem(
-                    ctx->in->buf->last,
+                ctx->in->buf->last = ngx_cpymem(ctx->in->buf->last,
                     c->buffer->start + (ctx->handshake->length.byte_len + ctx->handshake->length.num),
                     (c->buffer->last - c->buffer->start) - (ctx->handshake->length.byte_len + ctx->handshake->length.num)
                 );
+                ngx_log_debug1(NGX_LOG_DEBUG_STREAM, c->log, 0, "buf len: %d", ngx_buf_size(ctx->in->buf));
             }
 
             ctx->in->buf->last_buf = 1;
             ctx->in->next = NULL;
 
-            ctx->state = _MC_HANDSHAKE_STATUS_STATE_;
-
             return NGX_OK;
         case _MC_HANDSHAKE_LOGINSTART_STATE_:
             ctx->preread_handler = ngx_stream_minecraft_forward_module_loginstart_preread;
-            ctx->state = _MC_HANDSHAKE_LOGINSTART_STATE_;
             bufpos++;
             ctx->bufpos = bufpos;
             break;
         case _MC_HANDSHAKE_TRANSFER_STATE_:
             ngx_log_error(NGX_LOG_ALERT, c->log, 0, "Transfer state is not accepted");
-            ctx->state = _MC_HANDSHAKE_TRANSFER_STATE_;
             return NGX_ERROR;
         default:
             ngx_log_error(NGX_LOG_ALERT, c->log, 0, "Unknown next state (%d)", *bufpos);
@@ -558,14 +555,12 @@ static ngx_int_t ngx_stream_minecraft_forward_module_loginstart_preread(ngx_stre
 
     if (!ctx->loginstart->content) {
         bufpos = ctx->bufpos;
-        var = receive_packet(ctx->loginstart, &bufpos, c->buffer->last, nsmfm_loginstart_packet_init , ctx->pool);
+        var = receive_packet(ctx->loginstart, bufpos, c->buffer->last, nsmfm_loginstart_packet_init , ctx->pool);
         if (var != NGX_OK) {
             return var;
         }
-        bufpos -= ctx->loginstart->length.num;
         if (bufpos[0] != ctx->loginstart->id.bytes[0]) {
-            ngx_log_error(NGX_LOG_ALERT, c->log, 0,
-                          "Unexpected packet id (%d), %d is expected", bufpos[0], ctx->loginstart->id.bytes[0]);
+            ngx_log_error(NGX_LOG_ALERT, c->log, 0, "Unexpected packet id (%d), %d is expected", bufpos[0], ctx->loginstart->id.bytes[0]);
             return NGX_ERROR;
         }
         bufpos++;
@@ -579,11 +574,10 @@ static ngx_int_t ngx_stream_minecraft_forward_module_loginstart_preread(ngx_stre
         ngx_log_error(NGX_LOG_ALERT, c->log, 0, "Cannot read username");
         return var;
     }
-    ctx->bufpos = bufpos;
+
     ngx_log_error(NGX_LOG_NOTICE, c->log, 0, "read username: %s", loginstart->username.content);
 
     if (handshake->protocol_number.num >= MINECRAFT_1_19_3) {
-        bufpos = ctx->bufpos;
         uuid = loginstart->uuid;
         if (handshake->protocol_number.num <= MINECRAFT_1_20_1) {
             bufpos += 1;
@@ -605,7 +599,6 @@ static ngx_int_t ngx_stream_minecraft_forward_module_loginstart_preread(ngx_stre
         ngx_log_error(NGX_LOG_NOTICE, c->log, 0, "read uuid: %s", uuid);
 
         bufpos += _MC_UUID_BYTE_LEN_;
-        ctx->bufpos = bufpos;
     }
 
     ctx->in = ngx_alloc_chain_link(ctx->pool);
@@ -641,7 +634,7 @@ static ngx_int_t ngx_stream_minecraft_forward_module_loginstart_preread(ngx_stre
                   handshake->server_address.content,
                   loginstart->username.content,
                   handshake->protocol_number.num >= MINECRAFT_1_19_3 ? loginstart->uuid : (u_char *)"*None*",
-                  ctx->state);
+                  handshake->next_state.num);
 
     ctx->preread_pass = true;
     return NGX_OK;
@@ -655,7 +648,7 @@ ngx_str_t *get_new_hostname_str(ngx_stream_minecraft_forward_module_srv_conf_t *
     return (ngx_str_t *)ngx_hash_find(&sconf->hostname_map, ngx_hash_key(buf, len), buf, len);
 }
 
-static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_session_t *s, ngx_chain_t *chain, ngx_uint_t from_upstream) {
+static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_session_t *s, ngx_chain_t *chain_in, ngx_uint_t from_upstream) {
     ngx_connection_t                               *c;
     ngx_int_t                                       rc;
     nsmfm_session_context                          *ctx;
@@ -684,13 +677,13 @@ static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_s
 
     c = s->connection;
 
-    if (c->type != SOCK_STREAM || chain == NULL) {
-        return ngx_stream_next_filter(s, chain, from_upstream);
+    if (c->type != SOCK_STREAM || chain_in == NULL) {
+        return ngx_stream_next_filter(s, chain_in, from_upstream);
     }
 
     ctx = ngx_stream_get_module_ctx(s, ngx_stream_minecraft_forward_module);
     if (ctx == NULL) {
-        return ngx_stream_next_filter(s, chain, from_upstream);
+        return ngx_stream_next_filter(s, chain_in, from_upstream);
     }
 
     old_handshake = ctx->handshake->content;
@@ -726,8 +719,8 @@ static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_s
             }
         }
 response_pass:
-        rc = ngx_stream_next_filter(s, chain, from_upstream);
-        if (ctx->state == _MC_HANDSHAKE_STATUS_STATE_) {
+        rc = ngx_stream_next_filter(s, chain_in, from_upstream);
+        if (old_handshake->next_state.num == _MC_HANDSHAKE_STATUS_STATE_) {
             if (rc == NGX_OK) {
                 ctx->pinged = true;
             }
@@ -739,15 +732,15 @@ response_pass:
         }
     }
 
-    if (!sconf->replace_on_ping && ctx->state != _MC_HANDSHAKE_LOGINSTART_STATE_) {
-        return ngx_stream_next_filter(s, chain, from_upstream);
+    if (!sconf->replace_on_ping && old_handshake->next_state.num != _MC_HANDSHAKE_LOGINSTART_STATE_) {
+        return ngx_stream_next_filter(s, chain_in, from_upstream);
     }
 
     if (ctx->out) {
         goto chain_update;
     }
 
-    switch (ctx->state) {
+    switch (old_handshake->next_state.num) {
         case _MC_HANDSHAKE_LOGINSTART_STATE_:
             c->log->action = "filtering and forwarding new minecraft loginstart packet";
             break;
@@ -831,7 +824,7 @@ response_pass:
         goto filter_failure;
     }
 
-    new_chain->buf->pos = ngx_pcalloc(c->pool, (new_handshake_content_len.num + new_handshake_content_len.byte_len) * sizeof(u_char));
+    new_chain->buf->pos = ngx_pnalloc(c->pool, (new_handshake_content_len.num + new_handshake_content_len.byte_len) * sizeof(u_char));
     if (new_chain->buf->pos == NULL) {
         ngx_log_error(NGX_LOG_EMERG, c->log, 0, "Cannot initialize new chain buf space");
         goto filter_failure;
@@ -844,22 +837,15 @@ response_pass:
     new_chain->buf->memory = 1;
 
     new_chain->buf->last = ngx_cpymem(new_chain->buf->last, new_handshake_content_len.bytes, new_handshake_content_len.byte_len);
-
-    pchar = _PACKET_ID_;
-    new_chain->buf->last = ngx_cpymem(new_chain->buf->last, &pchar, 1);
-
+    new_chain->buf->last = ngx_cpymem(new_chain->buf->last, ctx->handshake->id.bytes, ctx->handshake->id.byte_len);
     new_chain->buf->last = ngx_cpymem(new_chain->buf->last, protocol_number.bytes, protocol_number.byte_len);
-
     new_chain->buf->last = ngx_cpymem(new_chain->buf->last, new_hostname.len.bytes, new_hostname.len.byte_len);
     new_chain->buf->last = ngx_cpymem(new_chain->buf->last, new_hostname.content, new_hostname.len.num);
-
     pchar = (old_handshake->server_port & 0xFF00) >> 8;
     new_chain->buf->last = ngx_cpymem(new_chain->buf->last, &pchar, 1);
     pchar = (old_handshake->server_port & 0x00FF);
     new_chain->buf->last = ngx_cpymem(new_chain->buf->last, &pchar, 1);
-
-    pchar = ctx->state;
-    new_chain->buf->last = ngx_cpymem(new_chain->buf->last, &pchar, 1);
+    new_chain->buf->last = ngx_cpymem(new_chain->buf->last, old_handshake->next_state.bytes, old_handshake->next_state.byte_len);
 
 #if (NGX_DEBUG)
     ngx_log_debug3(NGX_LOG_DEBUG_STREAM, c->log, 0,
@@ -880,7 +866,7 @@ response_pass:
             goto filter_failure;
         }
 
-        split_remnant_chain->buf->pos = ngx_pcalloc(c->pool, split_remnant_len);
+        split_remnant_chain->buf->pos = ngx_pnalloc(c->pool, split_remnant_len * sizeof(u_char));
         if (split_remnant_chain->buf->pos == NULL) {
             ngx_log_error(NGX_LOG_EMERG, c->log, 0, "Cannot initialize split remnant new buf space");
             goto filter_failure;
@@ -935,21 +921,21 @@ response_pass:
         append_i->next = target_chain_node->next->next;
     }
 
-    if (append_i->buf) {
+    if (append_i->buf != NULL) {
         *link_i = append_i;
         link_i = &append_i->next;
     }
 
-
     // https://hg.nginx.org/njs/file/77e4b95109d4/nginx/ngx_stream_js_module.c#l585
     // https://mailman.nginx.org/pipermail/nginx-devel/2022-January/6EUIJQXVFHMRZP3L5SJNWPJKQPROWA7U.html
 
-    for (ngx_chain_t *ln = chain; ln != NULL; ln = ln->next) {
+    for (ngx_chain_t *ln = chain_in; ln != NULL; ln = ln->next) {
         ln->buf->pos = ln->buf->last;
         if (ln == target_chain_node) {
             break;
         }
     }
+    ngx_free_chain(c->pool, target_chain_node);
 
     ctx->out = chain_out;
 
@@ -957,8 +943,7 @@ chain_update:
     rc = ngx_stream_next_filter(s, ctx->out, from_upstream);
 
 #if (NGX_DEBUG)
-    ngx_log_debug(NGX_LOG_DEBUG_STREAM, c->log, 0,
-                  "pass to next filter after minecraft packet filter, get rc: %d", rc);
+    ngx_log_debug(NGX_LOG_DEBUG_STREAM, c->log, 0, "pass to next filter after minecraft packet filter, get rc: %d", rc);
 #endif
 
     ngx_chain_update_chains(c->pool,
@@ -967,7 +952,7 @@ chain_update:
                             &ctx->out,
                             (ngx_buf_tag_t)&ngx_stream_minecraft_forward_module);
 
-    if (ctx->state == _MC_HANDSHAKE_STATUS_STATE_) {
+    if (old_handshake->next_state.num == _MC_HANDSHAKE_STATUS_STATE_) {
         if (sconf->replace_on_ping) {
             switch (rc) {
                 case NGX_OK:

@@ -15,7 +15,6 @@ typedef struct {
 
     minecraft_packet      *handshake;
     minecraft_packet      *loginstart;
-    ngx_int_t              state:3;
 
     u_char                *bufpos;
     int                    var1;
