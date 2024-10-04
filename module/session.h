@@ -17,8 +17,6 @@ typedef struct {
     minecraft_packet      *loginstart;
 
     u_char                *bufpos;
-    int                    var1;
-    int                    var2;
 
     ngx_pool_t            *pool;
     ngx_chain_t           *in;

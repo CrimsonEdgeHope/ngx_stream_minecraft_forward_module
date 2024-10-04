@@ -31,6 +31,8 @@ static ngx_int_t ngx_stream_minecraft_forward_module_loginstart_preread(ngx_stre
 ngx_str_t *get_new_hostname_str(ngx_stream_minecraft_forward_module_srv_conf_t *sconf, u_char *buf, size_t len);
 
 static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_session_t *s, ngx_chain_t *chain_in, ngx_uint_t from_upstream);
+static ngx_int_t ngx_stream_minecraft_forward_module_client_content_filter(ngx_stream_session_t *s, ngx_chain_t *chain_in);
+static ngx_int_t ngx_stream_minecraft_forward_module_upstream_content_filter(ngx_stream_session_t *s, ngx_chain_t *chain_in);
 
 static ngx_int_t ngx_stream_minecraft_forward_module_pre_init(ngx_conf_t *cf);
 static ngx_int_t ngx_stream_minecraft_forward_module_post_init(ngx_conf_t *cf);
@@ -280,6 +282,14 @@ void remove_session_context(ngx_stream_session_t *s) {
     ngx_stream_set_ctx(s, NULL, ngx_stream_minecraft_forward_module);
 }
 
+ngx_str_t *get_new_hostname_str(ngx_stream_minecraft_forward_module_srv_conf_t *sconf, u_char *buf, size_t len) {
+    if (sconf == NULL || buf == NULL) {
+        return NULL;
+    }
+
+    return (ngx_str_t *)ngx_hash_find(&sconf->hostname_map, ngx_hash_key(buf, len), buf, len);
+}
+
 static ngx_int_t ngx_stream_minecraft_forward_module_preread(ngx_stream_session_t *s) {
     ngx_connection_t                                *c;
     ngx_stream_minecraft_forward_module_srv_conf_t  *sconf;
@@ -493,7 +503,9 @@ static ngx_int_t ngx_stream_minecraft_forward_module_handshake_preread(ngx_strea
                     c->buffer->start + (ctx->handshake->length.byte_len + ctx->handshake->length.num),
                     (c->buffer->last - c->buffer->start) - (ctx->handshake->length.byte_len + ctx->handshake->length.num)
                 );
+#if (NGX_DEBUG)
                 ngx_log_debug1(NGX_LOG_DEBUG_STREAM, c->log, 0, "buf len: %d", ngx_buf_size(ctx->in->buf));
+#endif
             }
 
             ctx->in->buf->last_buf = 1;
@@ -640,15 +652,60 @@ static ngx_int_t ngx_stream_minecraft_forward_module_loginstart_preread(ngx_stre
     return NGX_OK;
 }
 
-ngx_str_t *get_new_hostname_str(ngx_stream_minecraft_forward_module_srv_conf_t *sconf, u_char *buf, size_t len) {
-    if (sconf == NULL || buf == NULL) {
-        return NULL;
+static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_session_t *s, ngx_chain_t *chain_in, ngx_uint_t from_upstream) {
+    ngx_connection_t       *c;
+    nsmfm_session_context  *ctx;
+
+    c = s->connection;
+
+    if (c->type != SOCK_STREAM || chain_in == NULL) {
+        return ngx_stream_next_filter(s, chain_in, from_upstream);
     }
 
-    return (ngx_str_t *)ngx_hash_find(&sconf->hostname_map, ngx_hash_key(buf, len), buf, len);
+    ctx = ngx_stream_get_module_ctx(s, ngx_stream_minecraft_forward_module);
+    if (ctx == NULL) {
+        return ngx_stream_next_filter(s, chain_in, from_upstream);
+    }
+
+    if (from_upstream) {
+        return ngx_stream_minecraft_forward_module_upstream_content_filter(s, chain_in);
+    } else {
+        return ngx_stream_minecraft_forward_module_client_content_filter(s, chain_in);
+    }
 }
 
-static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_session_t *s, ngx_chain_t *chain_in, ngx_uint_t from_upstream) {
+static ngx_int_t ngx_stream_minecraft_forward_module_upstream_content_filter(ngx_stream_session_t *s, ngx_chain_t *chain_in) {
+    ngx_connection_t       *c;
+    ngx_int_t               rc;
+    nsmfm_session_context  *ctx;
+    minecraft_handshake    *old_handshake;
+
+    c = s->connection;
+
+#if (NGX_DEBUG)
+    ngx_log_debug0(NGX_LOG_DEBUG_STREAM, c->log, 0, "Response from upstream");
+#endif
+    rc = ngx_stream_next_filter(s, chain_in, 1);
+
+    ctx = ngx_stream_get_module_ctx(s, ngx_stream_minecraft_forward_module);
+
+    if (ctx->pinged) {
+        ngx_log_error(NGX_LOG_NOTICE, c->log, 0, "Closing connection because already used for pinging");
+        remove_session_context(s);
+        return NGX_ERROR;
+    }
+
+    old_handshake = ctx->handshake->content;
+
+    if (old_handshake->next_state.num == _MC_HANDSHAKE_STATUS_STATE_) {
+        if (rc == NGX_OK) {
+            ctx->pinged = true;
+        }
+    }
+    return rc;
+}
+
+static ngx_int_t ngx_stream_minecraft_forward_module_client_content_filter(ngx_stream_session_t *s, ngx_chain_t *chain_in) {
     ngx_connection_t                               *c;
     ngx_int_t                                       rc;
     nsmfm_session_context                          *ctx;
@@ -676,64 +733,22 @@ static ngx_int_t ngx_stream_minecraft_forward_module_content_filter(ngx_stream_s
     ngx_chain_t                                    *append_i;
 
     c = s->connection;
-
-    if (c->type != SOCK_STREAM || chain_in == NULL) {
-        return ngx_stream_next_filter(s, chain_in, from_upstream);
-    }
-
     ctx = ngx_stream_get_module_ctx(s, ngx_stream_minecraft_forward_module);
-    if (ctx == NULL) {
-        return ngx_stream_next_filter(s, chain_in, from_upstream);
-    }
-
     old_handshake = ctx->handshake->content;
 
     c->log->action = "filtering minecraft packet";
-    if (ctx->pinged) {
-        ngx_log_error(NGX_LOG_NOTICE, c->log, 0, "Closing connection because already used for pinging");
-        goto filter_failure;
-    }
 
     sconf = ngx_stream_get_module_srv_conf(s, ngx_stream_minecraft_forward_module);
 
-    if (from_upstream) {
-        if (ctx->pinged) {
-            goto filter_failure;
-        }
-        if (ctx->var1 <= 0) {
-            rc = parse_varint(c->buffer->pos, &ctx->var2);
-            if (rc <= 0) {
-                if (c->buffer->last - c->buffer->pos < _MC_VARINT_MAX_BYTE_LEN_) {
-                    return NGX_AGAIN;
-                }
-                goto filter_failure;
-            }
-            ctx->var1 = rc;
-            if (c->buffer->last - c->buffer->pos >= (ssize_t)(ctx->var1 + ctx->var2)) {
-                goto response_pass;
-            }
-            return NGX_AGAIN;
-        } else {
-            if (c->buffer->last - c->buffer->pos < (ssize_t)(ctx->var1 + ctx->var2)) {
-                return NGX_AGAIN;
-            }
-        }
-response_pass:
-        rc = ngx_stream_next_filter(s, chain_in, from_upstream);
-        if (old_handshake->next_state.num == _MC_HANDSHAKE_STATUS_STATE_) {
-            if (rc == NGX_OK) {
-                ctx->pinged = true;
-            }
-        }
-        return rc;
-    } else {
-        if (ctx->pinged) {
-            goto filter_failure;
-        }
+#if (NGX_DEBUG)
+    ngx_log_debug0(NGX_LOG_DEBUG_STREAM, c->log, 0, "Request from client");
+#endif
+    if (ctx->pinged) {
+        return ngx_stream_next_filter(s, chain_in, 0);
     }
 
     if (!sconf->replace_on_ping && old_handshake->next_state.num != _MC_HANDSHAKE_LOGINSTART_STATE_) {
-        return ngx_stream_next_filter(s, chain_in, from_upstream);
+        return ngx_stream_next_filter(s, chain_in, 0);
     }
 
     if (ctx->out) {
@@ -754,7 +769,10 @@ response_pass:
 
     protocol_number = old_handshake->protocol_number;
 
-    str = get_new_hostname_str(sconf, old_handshake->server_address.content, old_handshake->server_address.len.num);
+    str = NULL;
+    if (sconf->replace_on_ping) {
+        str = get_new_hostname_str(sconf, old_handshake->server_address.content, old_handshake->server_address.len.num);
+    }
     if (str == NULL) {
         if (sconf->disconnect_on_nomatch) {
             ngx_log_error(NGX_LOG_NOTICE, c->log, 0, "Closing connection because of no hostname match");
@@ -940,7 +958,7 @@ response_pass:
     ctx->out = chain_out;
 
 chain_update:
-    rc = ngx_stream_next_filter(s, ctx->out, from_upstream);
+    rc = ngx_stream_next_filter(s, ctx->out, 0);
 
 #if (NGX_DEBUG)
     ngx_log_debug(NGX_LOG_DEBUG_STREAM, c->log, 0, "pass to next filter after minecraft packet filter, get rc: %d", rc);
