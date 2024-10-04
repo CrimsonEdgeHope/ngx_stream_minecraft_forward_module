@@ -24,17 +24,6 @@ jobs:
       fail-fast: false
       matrix:
         ngx: [
-          { gcc_image: "gcc:6.5.0", nginx_version: "1.11.5" },
-          { gcc_image: "gcc:6.5.0", nginx_version: "1.11.6" },
-          { gcc_image: "gcc:6.5.0", nginx_version: "1.11.7" },
-          { gcc_image: "gcc:6.5.0", nginx_version: "1.11.13" },
-          { gcc_image: "gcc:6.5.0", nginx_version: "1.12.2" },
-          { gcc_image: "gcc:6.5.0", nginx_version: "1.13.3" },
-          { gcc_image: "gcc:6.5.0", nginx_version: "1.13.7" },
-          { gcc_image: "gcc:6.5.0", nginx_version: "1.13.8" },
-          { gcc_image: "gcc:6.5.0", nginx_version: "1.13.12" },
-          { gcc_image: "gcc:6.5.0", nginx_version: "1.14.2" },
-          { gcc_image: "gcc:6.5.0", nginx_version: "1.15.12" },
           { gcc_image: "gcc:10.2", nginx_version: "1.17.10" },
           { gcc_image: "gcc:10.2", nginx_version: "1.18.0" },
           { gcc_image: "gcc:10.2", nginx_version: "1.19.3" },
@@ -43,19 +32,24 @@ jobs:
           { gcc_image: "gcc:10.2", nginx_version: "1.21.1" },
           { gcc_image: "gcc:10.2", nginx_version: "1.21.6" },
           { gcc_image: "gcc:10.2", nginx_version: "1.22.1" },
+          { gcc_image: "gcc:10.2", nginx_version: "1.23.2" },
           { gcc_image: "gcc:10.2", nginx_version: "1.23.3" },
           { gcc_image: "gcc:10.2", nginx_version: "1.23.4" },
           { gcc_image: "gcc:10.2", nginx_version: "1.24.0" },
           { gcc_image: "gcc:10.2", nginx_version: "1.25.0" },
           { gcc_image: "gcc:10.2", nginx_version: "1.25.4" },
           { gcc_image: "gcc:10.2", nginx_version: "1.25.5" },
-          { gcc_image: "gcc:10.2", nginx_version: "1.26.0" }
+          { gcc_image: "gcc:10.2", nginx_version: "1.26.1" },
+          { gcc_image: "gcc:10.2", nginx_version: "1.26.2" },
+          { gcc_image: "gcc:10.2", nginx_version: "1.27.0" },
+          { gcc_image: "gcc:10.2", nginx_version: "1.27.1" },
+          { gcc_image: "gcc:10.2", nginx_version: "1.27.2" },
         ]
     container:
       image: ${{ matrix.ngx.gcc_image }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
         with:
           ref: "master"
       - name: Script
