@@ -1,0 +1,8 @@
+#ifndef _NGX_STREAM_MINECRAFT_FORWARD_CONTENT_FILTER_MODULE_H_
+#define _NGX_STREAM_MINECRAFT_FORWARD_CONTENT_FILTER_MODULE_H_
+
+#include <ngx_core.h>
+
+extern ngx_module_t ngx_stream_minecraft_forward_content_filter_module;
+
+#endif

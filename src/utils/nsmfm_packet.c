@@ -1,10 +1,10 @@
 #include <ngx_core.h>
 #include <ngx_string.h>
-#include "../protocol/packet.h"
-#include "./varint.h"
-#include "./packet.h"
+#include "../protocol/nsmfm_packet.h"
+#include "nsmfm_varint.h"
+#include "nsmfm_packet.h"
 
-ngx_int_t receive_packet_length(minecraft_packet *packet, u_char **bufpos, u_char *buflast, int *byte_len) {
+ngx_int_t get_packet_length(minecraft_packet *packet, u_char **bufpos, u_char *buflast, int *byte_len) {
     if (packet == NULL || bufpos == NULL || buflast == NULL || byte_len == NULL) {
         return NGX_ERROR;
     }

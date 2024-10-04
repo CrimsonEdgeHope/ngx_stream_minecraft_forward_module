@@ -7,7 +7,7 @@
 #ifndef _NSMFM_MINECRAFT_JAVA_PROTOCOL_NUMBER_
 #define _NSMFM_MINECRAFT_JAVA_PROTOCOL_NUMBER_
 
-#include "./packet.h"
+#include "nsmfm_packet.h"
 #include <stdbool.h>
 
 #define MINECRAFT_1_8 47

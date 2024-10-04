@@ -4,8 +4,7 @@
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <stdbool.h>
-#include "../module/session.h"
-#include "../protocol/packet.h"
+#include "../protocol/nsmfm_packet.h"
 
 int parse_varint(u_char *buf, int *byte_len);
 bool parse_varint_fill_object(u_char *buf, minecraft_varint *var);

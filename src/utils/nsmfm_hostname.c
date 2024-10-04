@@ -1,8 +1,8 @@
 #include <ngx_core.h>
 #include <ngx_string.h>
 #include <stdbool.h>
-#include "./hostname.h"
-#include "../ngx_stream_minecraft_forward_module.h"
+#include "nsmfm_hostname.h"
+#include "../main/ngx_stream_minecraft_forward_module.h"
 
 bool nsmfm_validate_hostname(ngx_str_t *str) {
     if (str == NULL) {

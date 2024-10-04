@@ -1,5 +1,5 @@
-#include "./protocol_number.h"
-#include "../utils/varint.h"
+#include "nsmfm_protocol_number.h"
+#include "../utils/nsmfm_varint.h"
 
 bool nsmfm_is_known_protocol(minecraft_varint var) {
     switch (var.num) {

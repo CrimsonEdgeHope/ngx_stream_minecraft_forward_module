@@ -1,25 +1,28 @@
-ngx_addon_name=ngx_stream_minecraft_forward_module
-ngx_stream_addon_name=$ngx_addon_name
-
 if [ $STREAM = NO ]; then
-    echo "$ngx_stream_addon_name depends on stream module!"
+    echo "ngx_stream_minecraft_forward_module depends on stream module!"
     exit 1
 fi
 
-STREAM_MODULES="$STREAM_MODULES $ngx_stream_addon_name"
-
-STREAM_MODULE_SRCS=" \
-$ngx_addon_dir/ngx_stream_minecraft_forward_module.c \
-$ngx_addon_dir/protocol/packet.c \
-$ngx_addon_dir/protocol/protocol_number.c \
-$ngx_addon_dir/utils/hostname.c \
-$ngx_addon_dir/utils/packet.c \
-$ngx_addon_dir/utils/varint.c"
-
-NGX_ADDON_SRCS="$NGX_ADDON_SRCS $STREAM_MODULE_SRCS"
+srcdir="src"
 
 STREAM_INCS="$STREAM_INCS \
-$ngx_addon_dir \
-$ngx_addon_dir/module \
-$ngx_addon_dir/protocol \
-$ngx_addon_dir/utils"
+$ngx_addon_dir/$srcdir \
+$ngx_addon_dir/$srcdir/filter \
+$ngx_addon_dir/$srcdir/main \
+$ngx_addon_dir/$srcdir/protocol \
+$ngx_addon_dir/$srcdir/utils"
+
+ngx_addon_name=ngx_stream_minecraft_forward_module
+STREAM_MODULES="$STREAM_MODULES $ngx_addon_name ngx_stream_minecraft_forward_content_filter_module"
+
+STREAM_MODULE_SRCS=" \
+$ngx_addon_dir/$srcdir/main/ngx_stream_minecraft_forward_module.c \
+$ngx_addon_dir/$srcdir/main/nsmfm_session.c \
+$ngx_addon_dir/$srcdir/filter/ngx_stream_minecraft_forward_content_filter_module.c \
+$ngx_addon_dir/$srcdir/filter/nsmfcfm_session.c \
+$ngx_addon_dir/$srcdir/protocol/nsmfm_packet.c \
+$ngx_addon_dir/$srcdir/protocol/nsmfm_protocol_number.c \
+$ngx_addon_dir/$srcdir/utils/nsmfm_hostname.c \
+$ngx_addon_dir/$srcdir/utils/nsmfm_packet.c \
+$ngx_addon_dir/$srcdir/utils/nsmfm_varint.c"
+NGX_ADDON_SRCS="$NGX_ADDON_SRCS $STREAM_MODULE_SRCS"
