@@ -5,6 +5,8 @@
 #include <ngx_stream.h>
 #include <stdbool.h>
 
+#define _NSMFCFM_SESSION_CTX_DEFAULT_POOL_SIZE_ 2048
+
 typedef struct {
     bool          pinged;
     bool          fail;
@@ -13,6 +15,8 @@ typedef struct {
     ngx_chain_t  *out;
     ngx_chain_t  *free_chain;
     ngx_chain_t  *busy_chain;
+
+    ngx_pool_t   *pool;
 } nsmfcfm_session_context;
 
 bool nsmfcfm_create_session_context(ngx_stream_session_t *s);

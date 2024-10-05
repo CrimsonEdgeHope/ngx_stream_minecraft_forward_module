@@ -53,6 +53,10 @@ static ngx_str_t *get_new_hostname_str(nsmfm_srv_conf_t *sconf, u_char *buf, siz
 }
 
 static ngx_int_t nsmfm_content_filter(ngx_stream_session_t *s, ngx_chain_t *chain_in, ngx_uint_t from_upstream) {
+    if (nsmfcfm_get_session_context(s) == NULL) {
+        return ngx_stream_next_filter(s, chain_in, from_upstream);
+    }
+
     if (from_upstream) {
         return nsmfm_upstream_content_filter(s, chain_in);
     } else {
@@ -116,7 +120,7 @@ static ngx_int_t nsmfm_client_content_filter(ngx_stream_session_t *s, ngx_chain_
     minecraft_string          new_hostname;
     minecraft_varint          protocol_number;
 
-    ngx_str_t                *str;
+    ngx_str_t                *str = NULL;
     u_char                    pchar;
 
     int                       in_buf_len;
@@ -126,7 +130,6 @@ static ngx_int_t nsmfm_client_content_filter(ngx_stream_session_t *s, ngx_chain_
     ngx_chain_t              *new_chain;
     ngx_chain_t              *split_remnant_chain;
 
-    ngx_chain_t              *chain_out;
     ngx_chain_t             **link_i;
     ngx_chain_t              *append_i;
 
@@ -172,17 +175,22 @@ static ngx_int_t nsmfm_client_content_filter(ngx_stream_session_t *s, ngx_chain_
 
     protocol_number = old_handshake->protocol_number;
 
-    str = get_new_hostname_str(sconf, old_handshake->server_address.content, old_handshake->server_address.len.num);
-    if (str == NULL) {
-        if (sconf->disconnect_on_nomatch) {
-            ngx_log_error(NGX_LOG_NOTICE, c->log, 0, "Closing connection because of no hostname match");
-            goto filter_failure;
+    if (sconf->replace_on_ping) {
+        str = get_new_hostname_str(sconf, old_handshake->server_address.content, old_handshake->server_address.len.num);
+        if (str == NULL) {
+            if (sconf->disconnect_on_nomatch) {
+                ngx_log_error(NGX_LOG_NOTICE, c->log, 0, "Closing connection because of no hostname match");
+                goto filter_failure;
+            }
+            new_hostname = old_handshake->server_address;
+        } else {
+            new_hostname.content = str->data;
+            fill_varint_object(str->len, &new_hostname.len);
         }
-        new_hostname = old_handshake->server_address;
     } else {
-        new_hostname.content = str->data;
-        fill_varint_object(str->len, &new_hostname.len);
+        new_hostname = old_handshake->server_address;
     }
+
     if (new_hostname.len.num <= 0) {
         goto filter_failure;
     }
@@ -313,7 +321,7 @@ static ngx_int_t nsmfm_client_content_filter(ngx_stream_session_t *s, ngx_chain_
     // https://nginx.org/en/docs/dev/development_guide.html#http_body_buffers_reuse
 
     append_i = NULL;
-    link_i = &chain_out;
+    link_i = &cfctx->out;
 
     *link_i = new_chain;
     link_i = &new_chain->next;
@@ -355,9 +363,6 @@ static ngx_int_t nsmfm_client_content_filter(ngx_stream_session_t *s, ngx_chain_
             break;
         }
     }
-    ngx_free_chain(c->pool, target_chain_node);
-
-    cfctx->out = chain_out;
 
 chain_update:
     rc = ngx_stream_next_filter(s, cfctx->out, 0);

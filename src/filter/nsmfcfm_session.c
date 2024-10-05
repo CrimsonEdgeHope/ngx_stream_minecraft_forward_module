@@ -13,6 +13,10 @@ bool nsmfcfm_create_session_context(ngx_stream_session_t *s) {
         if (ctx == NULL) {
             return false;
         }
+        ctx->pool = ngx_create_pool(_NSMFCFM_SESSION_CTX_DEFAULT_POOL_SIZE_, s->connection->log);
+        if (ctx->pool == NULL) {
+            return false;
+        }
         ngx_stream_set_ctx(s, ctx, ngx_stream_minecraft_forward_content_filter_module);
     }
 
@@ -24,9 +28,22 @@ nsmfcfm_session_context *nsmfcfm_get_session_context(ngx_stream_session_t *s) {
 }
 
 void nsmfcfm_remove_session_context(ngx_stream_session_t *s) {
+    nsmfcfm_session_context  *ctx;
+
+    ctx = nsmfcfm_get_session_context(s);
+
 #if (NGX_DEBUG)
     ngx_log_debug0(NGX_LOG_DEBUG_STREAM, s->connection->log, 0,
         "ngx_stream_minecraft_forward_content_filter_module: Removing session context");
 #endif
+
+    if (ctx) {
+        if (ctx->pool) {
+            ngx_destroy_pool(ctx->pool);
+            ctx->pool = NULL;
+        }
+        ngx_pfree(s->connection->pool, ctx);
+    }
+
     ngx_stream_set_ctx(s, NULL, ngx_stream_minecraft_forward_content_filter_module);
 }

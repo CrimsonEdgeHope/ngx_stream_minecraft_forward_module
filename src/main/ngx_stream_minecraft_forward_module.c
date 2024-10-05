@@ -247,8 +247,6 @@ static char *nsmfm_merge_srv_conf(ngx_conf_t *cf, void *prev, void *conf) {
     return NGX_CONF_OK;
 }
 
-
-
 static ngx_int_t nsmfm_preread(ngx_stream_session_t *s) {
     ngx_connection_t       *c;
     nsmfm_srv_conf_t       *sconf;
@@ -295,6 +293,7 @@ static ngx_int_t nsmfm_preread(ngx_stream_session_t *s) {
 end_of_preread:
     if (ctx->fail) {
         nsmfm_remove_session_context(s);
+        nsmfcfm_remove_session_context(s);
         ngx_log_error(NGX_LOG_ERR, c->log, 0, "Preread failed");
         return NGX_ERROR;
     }
@@ -400,7 +399,7 @@ static ngx_int_t nsmfm_handshake_preread(ngx_stream_session_t *s) {
             }
             cfctx = nsmfcfm_get_session_context(s);
 
-            cfctx->in = ngx_alloc_chain_link(ctx->pool);
+            cfctx->in = ngx_alloc_chain_link(cfctx->pool);
 
             if (!cfctx->in) {
                 return NGX_ERROR;
@@ -412,7 +411,7 @@ static ngx_int_t nsmfm_handshake_preread(ngx_stream_session_t *s) {
             byte_len = buffer_remanent ?
                 (c->buffer->last - c->buffer->start) : (ctx->handshake->length.byte_len + ctx->handshake->length.num);
 
-            cfctx->in->buf = ngx_create_temp_buf(ctx->pool, byte_len);
+            cfctx->in->buf = ngx_create_temp_buf(cfctx->pool, byte_len);
             if (!cfctx->in->buf) {
                 return NGX_ERROR;
             }
@@ -575,12 +574,12 @@ static ngx_int_t nsmfm_loginstart_preread(ngx_stream_session_t *s) {
         bufpos += _MC_UUID_BYTE_LEN_;
     }
 
-    cfctx->in = ngx_alloc_chain_link(ctx->pool);
+    cfctx->in = ngx_alloc_chain_link(cfctx->pool);
     if (!cfctx->in) {
         return NGX_ERROR;
     }
 
-    cfctx->in->buf = ngx_create_temp_buf(ctx->pool,
+    cfctx->in->buf = ngx_create_temp_buf(cfctx->pool,
         ctx->handshake->length.byte_len + ctx->handshake->length.num +
         ctx->loginstart->length.byte_len + ctx->loginstart->length.num);
 
