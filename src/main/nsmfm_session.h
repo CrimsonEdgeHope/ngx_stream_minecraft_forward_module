@@ -2,7 +2,7 @@
 #define _NSMFM_STREAM_SESSION_CONTEXT_
 
 #include <ngx_core.h>
-#include "nsmfm_handler.h"
+#include "../preread/nsmfpm_handler.h"
 #include "../protocol/nsmfm_packet.h"
 #include <stdbool.h>
 

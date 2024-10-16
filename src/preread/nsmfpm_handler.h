@@ -1,5 +1,5 @@
-#ifndef _NSMFM_MODULE_HANDLER_
-#define _NSMFM_MODULE_HANDLER_
+#ifndef _NSMFPM_MODULE_HANDLER_
+#define _NSMFPM_MODULE_HANDLER_
 
 #include <ngx_core.h>
 #include <ngx_stream.h>

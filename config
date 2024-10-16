@@ -4,25 +4,32 @@ if [ $STREAM = NO ]; then
 fi
 
 srcdir="src"
+srcdir="$ngx_addon_dir/$srcdir"
 
 STREAM_INCS="$STREAM_INCS \
-$ngx_addon_dir/$srcdir \
-$ngx_addon_dir/$srcdir/filter \
-$ngx_addon_dir/$srcdir/main \
-$ngx_addon_dir/$srcdir/protocol \
-$ngx_addon_dir/$srcdir/utils"
+$srcdir \
+$srcdir/filter \
+$srcdir/main \
+$srcdir/preread \
+$srcdir/protocol \
+$srcdir/utils"
 
-ngx_addon_name=ngx_stream_minecraft_forward_module
-STREAM_MODULES="$STREAM_MODULES $ngx_addon_name ngx_stream_minecraft_forward_content_filter_module"
+NSMFM_MAIN="ngx_stream_minecraft_forward_module"
+NSMFM_FILTER="ngx_stream_minecraft_forward_content_filter_module"
+NSMFM_PREREAD="ngx_stream_minecraft_forward_preread_module"
+
+ngx_addon_name=$NSMFM_MAIN
+STREAM_MODULES="$STREAM_MODULES $NSMFM_MAIN $NSMFM_FILTER $NSMFM_PREREAD"
 
 STREAM_MODULE_SRCS=" \
-$ngx_addon_dir/$srcdir/main/ngx_stream_minecraft_forward_module.c \
-$ngx_addon_dir/$srcdir/main/nsmfm_session.c \
-$ngx_addon_dir/$srcdir/filter/ngx_stream_minecraft_forward_content_filter_module.c \
-$ngx_addon_dir/$srcdir/filter/nsmfcfm_session.c \
-$ngx_addon_dir/$srcdir/protocol/nsmfm_packet.c \
-$ngx_addon_dir/$srcdir/protocol/nsmfm_protocol_number.c \
-$ngx_addon_dir/$srcdir/utils/nsmfm_hostname.c \
-$ngx_addon_dir/$srcdir/utils/nsmfm_packet.c \
-$ngx_addon_dir/$srcdir/utils/nsmfm_varint.c"
+$srcdir/main/ngx_stream_minecraft_forward_module.c \
+$srcdir/main/nsmfm_session.c \
+$srcdir/filter/ngx_stream_minecraft_forward_content_filter_module.c \
+$srcdir/filter/nsmfcfm_session.c \
+$srcdir/preread/ngx_stream_minecraft_forward_preread_module.c \
+$srcdir/protocol/nsmfm_packet.c \
+$srcdir/protocol/nsmfm_protocol_number.c \
+$srcdir/utils/nsmfm_hostname.c \
+$srcdir/utils/nsmfm_packet.c \
+$srcdir/utils/nsmfm_varint.c"
 NGX_ADDON_SRCS="$NGX_ADDON_SRCS $STREAM_MODULE_SRCS"
