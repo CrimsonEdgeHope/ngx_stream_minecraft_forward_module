@@ -81,19 +81,20 @@ static ngx_int_t nsmfm_upstream_content_filter(ngx_stream_session_t *s, ngx_chai
 
     cfctx = nsmfcfm_get_session_context(s);
     if (cfctx == NULL) {
-        return rc;
+        goto end_of_upstream_content_filter;
     }
 
     if (cfctx->pinged) {
         ngx_log_error(NGX_LOG_NOTICE, c->log, 0, "Closing connection because already used for pinging");
         nsmfcfm_remove_session_context(s);
         nsmfpm_remove_session_context(s);
-        return NGX_ERROR;
+        rc = NGX_ERROR;
+        goto end_of_upstream_content_filter;
     }
 
     mctx = nsmfpm_get_session_context(s);
     if (mctx == NULL) {
-        return rc;
+        goto end_of_upstream_content_filter;
     }
 
     old_handshake = mctx->handshake->content;
@@ -103,6 +104,8 @@ static ngx_int_t nsmfm_upstream_content_filter(ngx_stream_session_t *s, ngx_chai
             cfctx->pinged = true;
         }
     }
+
+end_of_upstream_content_filter:
     return rc;
 }
 

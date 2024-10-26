@@ -11,9 +11,9 @@
 
 static ngx_int_t nsmfpm_post_init(ngx_conf_t *cf);
 
-static ngx_int_t nsmfm_preread(ngx_stream_session_t *s);
-static ngx_int_t nsmfm_handshake_preread(ngx_stream_session_t *s);
-static ngx_int_t nsmfm_loginstart_preread(ngx_stream_session_t *s);
+static ngx_int_t nsmfpm(ngx_stream_session_t *s);
+static ngx_int_t nsmfpm_handshake(ngx_stream_session_t *s);
+static ngx_int_t nsmfpm_loginstart(ngx_stream_session_t *s);
 
 static ngx_stream_module_t nsmfpm_conf_ctx = {
     NULL,  /* preconfiguration */
@@ -41,12 +41,12 @@ ngx_module_t ngx_stream_minecraft_forward_preread_module = {
     NGX_MODULE_V1_PADDING  /* No padding */
 };
 
-static ngx_int_t nsmfm_preread(ngx_stream_session_t *s) {
-    ngx_connection_t       *c;
-    nsmfm_srv_conf_t       *sconf;
+static ngx_int_t nsmfpm(ngx_stream_session_t *s) {
+    ngx_connection_t        *c;
+    nsmfm_srv_conf_t        *sconf;
     nsmfpm_session_context  *ctx;
 
-    ngx_int_t               rc;
+    ngx_int_t                rc;
 
     c = s->connection;
 
@@ -71,11 +71,12 @@ static ngx_int_t nsmfm_preread(ngx_stream_session_t *s) {
             return NGX_ERROR;
         }
         ctx = nsmfpm_get_session_context(s);
-        ctx->handler = nsmfm_handshake_preread;
+        ctx->handler = nsmfpm_handshake;
     }
 
     if (ctx->pass) {
-        return NGX_OK;
+        rc = NGX_OK;
+        goto end_of_preread;
     }
 
     rc = ctx->handler(s);
@@ -89,7 +90,7 @@ end_of_preread:
         nsmfpm_remove_session_context(s);
         nsmfcfm_remove_session_context(s);
         ngx_log_error(NGX_LOG_ERR, c->log, 0, "Preread failed");
-        return NGX_ERROR;
+        rc = NGX_ERROR;
     }
 
     return rc;
@@ -99,9 +100,9 @@ preread_failure:
     goto end_of_preread;
 }
 
-static ngx_int_t nsmfm_handshake_preread(ngx_stream_session_t *s) {
+static ngx_int_t nsmfpm_handshake(ngx_stream_session_t *s) {
     ngx_connection_t         *c;
-    nsmfpm_session_context    *ctx;
+    nsmfpm_session_context   *ctx;
     nsmfcfm_session_context  *cfctx;
 
     u_char                   *bufpos;
@@ -143,21 +144,24 @@ static ngx_int_t nsmfm_handshake_preread(ngx_stream_session_t *s) {
             return var;
         }
         if (bufpos[0] != ctx->handshake->id.bytes[0]) {
-            ngx_log_error(NGX_LOG_ALERT, c->log, 0, "Read unexpected packet id (%d), (%d) is expected", bufpos[0], ctx->handshake->id.bytes[0]);
+            ngx_log_error(NGX_LOG_ALERT, c->log, 0,
+                          "Read unexpected packet id (%d), (%d) is expected",
+                          bufpos[0], ctx->handshake->id.bytes[0]);
             return NGX_ERROR;
         }
         bufpos++;
         ctx->bufpos = bufpos;
     }
+
     handshake = ctx->handshake->content;
 
     bufpos = ctx->bufpos;
+
     if (!nsmfm_parse_varint_fill_object(bufpos, &handshake->protocol_number)) {
         ngx_log_error(NGX_LOG_ALERT, c->log, 0, "Cannot read protocol number");
         return NGX_ERROR;
     }
     ngx_log_error(NGX_LOG_NOTICE, c->log, 0, "read varint, protocol number: %d", handshake->protocol_number.num);
-
     if (!nsmfm_is_known_protocol(handshake->protocol_number)) {
         ngx_log_error(NGX_LOG_ALERT, c->log, 0, "Unknown protocol number: %d", handshake->protocol_number.num);
         return NGX_ERROR;
@@ -170,17 +174,14 @@ static ngx_int_t nsmfm_handshake_preread(ngx_stream_session_t *s) {
         ngx_log_error(NGX_LOG_ALERT, c->log, 0, "Cannot read server hostname");
         return var;
     }
-
     ngx_log_error(NGX_LOG_NOTICE, c->log, 0, "read hostname: %s", handshake->server_address.content);
 
     handshake->server_port |= (bufpos[0] << 8);
     handshake->server_port |= bufpos[1];
     bufpos += _MC_PORT_LEN_;
-
     ngx_log_error(NGX_LOG_NOTICE, c->log, 0, "read remote port: %d", handshake->server_port);
 
     nsmfm_fill_varint_object(bufpos[0], &handshake->next_state);
-
     ngx_log_error(NGX_LOG_NOTICE, c->log, 0, "read next state: %d", handshake->next_state.num);
 
     switch (handshake->next_state.num) {
@@ -261,7 +262,7 @@ static ngx_int_t nsmfm_handshake_preread(ngx_stream_session_t *s) {
 
             return NGX_OK;
         case _MC_HANDSHAKE_LOGINSTART_STATE_:
-            ctx->handler = nsmfm_loginstart_preread;
+            ctx->handler = nsmfpm_loginstart;
             bufpos++;
             ctx->bufpos = bufpos;
             break;
@@ -276,9 +277,9 @@ static ngx_int_t nsmfm_handshake_preread(ngx_stream_session_t *s) {
     return NGX_AGAIN;
 }
 
-static ngx_int_t nsmfm_loginstart_preread(ngx_stream_session_t *s) {
+static ngx_int_t nsmfpm_loginstart(ngx_stream_session_t *s) {
     ngx_connection_t         *c;
-    nsmfpm_session_context    *ctx;
+    nsmfpm_session_context   *ctx;
     nsmfcfm_session_context  *cfctx;
 
     u_char                   *bufpos;
@@ -333,21 +334,22 @@ static ngx_int_t nsmfm_loginstart_preread(ngx_stream_session_t *s) {
         bufpos++;
         ctx->bufpos = bufpos;
     }
+
     loginstart = ctx->loginstart->content;
 
     bufpos = ctx->bufpos;
+
     var = nsmfm_get_string(&bufpos, &loginstart->username, ctx->pool);
     if (var != NGX_OK) {
         ngx_log_error(NGX_LOG_ALERT, c->log, 0, "Cannot read username");
         return var;
     }
-
     ngx_log_error(NGX_LOG_NOTICE, c->log, 0, "read username: %s", loginstart->username.content);
 
     if (handshake->protocol_number.num >= MINECRAFT_1_19_3) {
         uuid = loginstart->uuid;
         if (handshake->protocol_number.num <= MINECRAFT_1_20_1) {
-            bufpos += 1;
+            bufpos++;
         }
 
         for (int i = 0; i < _MC_UUID_LITERAL_LEN_; ++i) {
@@ -416,7 +418,7 @@ static ngx_int_t nsmfpm_post_init(ngx_conf_t *cf) {
     if (hp == NULL) {
         return NGX_ERROR;
     }
-    *hp = nsmfm_preread;
+    *hp = nsmfpm;
 
     return NGX_OK;
 }
