@@ -2,19 +2,19 @@
 #include <ngx_stream.h>
 #include <stdbool.h>
 #include "ngx_stream_minecraft_forward_module.h"
-#include "nsmfm_session.h"
+#include "nsmfpm_session.h"
 
-bool nsmfm_create_session_context(ngx_stream_session_t *s) {
-    nsmfm_session_context  *ctx;
+bool nsmfpm_create_session_context(ngx_stream_session_t *s) {
+    nsmfpm_session_context  *ctx;
 
-    ctx = nsmfm_get_session_context(s);
+    ctx = nsmfpm_get_session_context(s);
     if (ctx == NULL) {
-        ctx = ngx_pcalloc(s->connection->pool, sizeof(nsmfm_session_context));
+        ctx = ngx_pcalloc(s->connection->pool, sizeof(nsmfpm_session_context));
         if (ctx == NULL) {
             return false;
         }
 
-        ctx->pool = ngx_create_pool(_NSMFM_SESSION_CTX_DEFAULT_POOL_SIZE_, s->connection->log);
+        ctx->pool = ngx_create_pool(_NSMFPM_SESSION_CTX_DEFAULT_POOL_SIZE_, s->connection->log);
         if (ctx->pool == NULL) {
             return false;
         }
@@ -25,14 +25,14 @@ bool nsmfm_create_session_context(ngx_stream_session_t *s) {
     return true;
 }
 
-nsmfm_session_context *nsmfm_get_session_context(ngx_stream_session_t *s) {
+nsmfpm_session_context *nsmfpm_get_session_context(ngx_stream_session_t *s) {
     return ngx_stream_get_module_ctx(s, ngx_stream_minecraft_forward_module);
 }
 
-void nsmfm_remove_session_context(ngx_stream_session_t *s) {
-    nsmfm_session_context *ctx;
+void nsmfpm_remove_session_context(ngx_stream_session_t *s) {
+    nsmfpm_session_context *ctx;
 
-    ctx = nsmfm_get_session_context(s);
+    ctx = nsmfpm_get_session_context(s);
 
 #if (NGX_DEBUG)
     ngx_log_debug0(NGX_LOG_DEBUG_STREAM, s->connection->log, 0, "ngx_stream_minecraft_forward_module: Removing session context");

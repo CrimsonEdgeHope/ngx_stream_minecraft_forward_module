@@ -3,7 +3,6 @@
 #include <ngx_regex.h>
 #include <ngx_stream.h>
 #include "nsmfm_varint.h"
-#include "nsmfm_session.h"
 
 /*
  Reference: https://wiki.vg/index.php?title=Protocol&oldid=7617#VarInt_and_VarLong

@@ -4,7 +4,7 @@
 #include <ngx_stream.h>
 #include "ngx_stream_minecraft_forward_content_filter_module.h"
 #include "../main/ngx_stream_minecraft_forward_module.h"
-#include "../main/nsmfm_session.h"
+#include "../preread/nsmfpm_session.h"
 #include "nsmfcfm_session.h"
 #include "../utils/nsmfm_varint.h"
 
@@ -68,7 +68,7 @@ static ngx_int_t nsmfm_upstream_content_filter(ngx_stream_session_t *s, ngx_chai
     ngx_connection_t         *c;
     ngx_int_t                 rc;
 
-    nsmfm_session_context    *mctx;
+    nsmfpm_session_context    *mctx;
     nsmfcfm_session_context  *cfctx;
     minecraft_handshake      *old_handshake;
 
@@ -87,11 +87,11 @@ static ngx_int_t nsmfm_upstream_content_filter(ngx_stream_session_t *s, ngx_chai
     if (cfctx->pinged) {
         ngx_log_error(NGX_LOG_NOTICE, c->log, 0, "Closing connection because already used for pinging");
         nsmfcfm_remove_session_context(s);
-        nsmfm_remove_session_context(s);
+        nsmfpm_remove_session_context(s);
         return NGX_ERROR;
     }
 
-    mctx = nsmfm_get_session_context(s);
+    mctx = nsmfpm_get_session_context(s);
     if (mctx == NULL) {
         return rc;
     }
@@ -109,7 +109,7 @@ static ngx_int_t nsmfm_upstream_content_filter(ngx_stream_session_t *s, ngx_chai
 static ngx_int_t nsmfm_client_content_filter(ngx_stream_session_t *s, ngx_chain_t *chain_in) {
     ngx_connection_t         *c;
     ngx_int_t                 rc;
-    nsmfm_session_context    *mctx;
+    nsmfpm_session_context   *mctx;
     nsmfcfm_session_context  *cfctx;
     nsmfm_srv_conf_t         *sconf;
 
@@ -139,7 +139,7 @@ static ngx_int_t nsmfm_client_content_filter(ngx_stream_session_t *s, ngx_chain_
         return ngx_stream_next_filter(s, chain_in, 0);
     }
 
-    mctx = nsmfm_get_session_context(s);
+    mctx = nsmfpm_get_session_context(s);
     old_handshake = mctx->handshake->content;
 
     c->log->action = "filtering minecraft packet";
@@ -401,7 +401,7 @@ end_of_filter:
         }
     }
     nsmfcfm_remove_session_context(s);
-    nsmfm_remove_session_context(s);
+    nsmfpm_remove_session_context(s);
     return rc;
 
 filter_failure:

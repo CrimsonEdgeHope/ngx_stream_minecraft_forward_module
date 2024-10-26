@@ -1,8 +1,7 @@
 #include <ngx_core.h>
 #include <ngx_stream.h>
 #include "../main/ngx_stream_minecraft_forward_module.h"
-#include "nsmfpm_handler.h"
-#include "../main/nsmfm_session.h"
+#include "nsmfpm_session.h"
 #include "../protocol/nsmfm_packet.h"
 #include "../protocol/nsmfm_protocol_number.h"
 #include "../utils/nsmfm_varint.h"
@@ -45,7 +44,7 @@ ngx_module_t ngx_stream_minecraft_forward_preread_module = {
 static ngx_int_t nsmfm_preread(ngx_stream_session_t *s) {
     ngx_connection_t       *c;
     nsmfm_srv_conf_t       *sconf;
-    nsmfm_session_context  *ctx;
+    nsmfpm_session_context  *ctx;
 
     ngx_int_t               rc;
 
@@ -66,12 +65,12 @@ static ngx_int_t nsmfm_preread(ngx_stream_session_t *s) {
         return NGX_AGAIN;
     }
 
-    ctx = nsmfm_get_session_context(s);
+    ctx = nsmfpm_get_session_context(s);
     if (ctx == NULL) {
-        if (!nsmfm_create_session_context(s)) {
+        if (!nsmfpm_create_session_context(s)) {
             return NGX_ERROR;
         }
-        ctx = nsmfm_get_session_context(s);
+        ctx = nsmfpm_get_session_context(s);
         ctx->handler = nsmfm_handshake_preread;
     }
 
@@ -87,7 +86,7 @@ static ngx_int_t nsmfm_preread(ngx_stream_session_t *s) {
 
 end_of_preread:
     if (ctx->fail) {
-        nsmfm_remove_session_context(s);
+        nsmfpm_remove_session_context(s);
         nsmfcfm_remove_session_context(s);
         ngx_log_error(NGX_LOG_ERR, c->log, 0, "Preread failed");
         return NGX_ERROR;
@@ -102,7 +101,7 @@ preread_failure:
 
 static ngx_int_t nsmfm_handshake_preread(ngx_stream_session_t *s) {
     ngx_connection_t         *c;
-    nsmfm_session_context    *ctx;
+    nsmfpm_session_context    *ctx;
     nsmfcfm_session_context  *cfctx;
 
     u_char                   *bufpos;
@@ -117,7 +116,7 @@ static ngx_int_t nsmfm_handshake_preread(ngx_stream_session_t *s) {
     c = s->connection;
     c->log->action = "prereading minecraft handshake packet";
 
-    ctx = nsmfm_get_session_context(s);
+    ctx = nsmfpm_get_session_context(s);
 
     if (!ctx->handshake) {
         ctx->handshake = ngx_pcalloc(ctx->pool, sizeof(minecraft_packet));
@@ -279,7 +278,7 @@ static ngx_int_t nsmfm_handshake_preread(ngx_stream_session_t *s) {
 
 static ngx_int_t nsmfm_loginstart_preread(ngx_stream_session_t *s) {
     ngx_connection_t         *c;
-    nsmfm_session_context    *ctx;
+    nsmfpm_session_context    *ctx;
     nsmfcfm_session_context  *cfctx;
 
     u_char                   *bufpos;
@@ -293,7 +292,7 @@ static ngx_int_t nsmfm_loginstart_preread(ngx_stream_session_t *s) {
     c = s->connection;
     c->log->action = "prereading minecraft loginstart packet";
 
-    ctx = nsmfm_get_session_context(s);
+    ctx = nsmfpm_get_session_context(s);
     if (!nsmfcfm_create_session_context(s)) {
         return NGX_ERROR;
     }

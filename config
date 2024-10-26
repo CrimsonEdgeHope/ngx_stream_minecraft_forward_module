@@ -23,7 +23,7 @@ STREAM_MODULES="$STREAM_MODULES $NSMFM_MAIN $NSMFM_FILTER $NSMFM_PREREAD"
 
 STREAM_MODULE_SRCS=" \
 $srcdir/main/ngx_stream_minecraft_forward_module.c \
-$srcdir/main/nsmfm_session.c \
+$srcdir/preread/nsmfpm_session.c \
 $srcdir/filter/ngx_stream_minecraft_forward_content_filter_module.c \
 $srcdir/filter/nsmfcfm_session.c \
 $srcdir/preread/ngx_stream_minecraft_forward_preread_module.c \
