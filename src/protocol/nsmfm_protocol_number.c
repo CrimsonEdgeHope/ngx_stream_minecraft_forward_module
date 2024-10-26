@@ -3,6 +3,7 @@
 
 bool nsmfm_is_known_protocol(minecraft_varint var) {
     switch (var.num) {
+        case MINECRAFT_1_21_3:
         case MINECRAFT_1_21_1:
         case MINECRAFT_1_20_6:
         case MINECRAFT_1_20_4:

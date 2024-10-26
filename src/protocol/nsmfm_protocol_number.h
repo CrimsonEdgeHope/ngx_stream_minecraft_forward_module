@@ -83,6 +83,8 @@
 
 #define MINECRAFT_1_21 767
 #define MINECRAFT_1_21_1 767
+#define MINECRAFT_1_21_2 768
+#define MINECRAFT_1_21_3 768
 
 bool nsmfm_is_known_protocol(minecraft_varint var);
 
