@@ -6,12 +6,12 @@
 #include <stdbool.h>
 #include "../protocol/nsmfm_packet.h"
 
-int parse_varint(u_char *buf, int *byte_len);
-bool parse_varint_fill_object(u_char *buf, minecraft_varint *var);
-int parse_varint_object(minecraft_varint *var, int *byte_len);
+int nsmfm_parse_varint(u_char *buf, int *byte_len);
+bool nsmfm_parse_varint_fill_object(u_char *buf, minecraft_varint *var);
+int nsmfm_parse_varint_object(minecraft_varint *var, int *byte_len);
 
-void create_varint(int value, u_char *buffer, int *byte_len);
-void fill_varint_object(int value, minecraft_varint *res);
-minecraft_varint *create_varint_object(int value, ngx_pool_t *pool);
+void nsmfm_create_varint(int value, u_char *buffer, int *byte_len);
+void nsmfm_fill_varint_object(int value, minecraft_varint *res);
+minecraft_varint *nsmfm_create_varint_object(int value, ngx_pool_t *pool);
 
 #endif

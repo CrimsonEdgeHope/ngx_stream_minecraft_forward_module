@@ -13,7 +13,7 @@ bool nsmfm_handshake_packet_init(minecraft_packet *packet, ngx_pool_t *pool) {
         return false;
     }
 
-    fill_varint_object(_MC_HANDSHAKE_PACKET_ID_, &packet->id);
+    nsmfm_fill_varint_object(_MC_HANDSHAKE_PACKET_ID_, &packet->id);
     ((minecraft_handshake *)packet->content)->server_port = 0;
 
     return true;
@@ -27,6 +27,6 @@ bool nsmfm_loginstart_packet_init(minecraft_packet *packet, ngx_pool_t *pool) {
     if (packet->content == NULL) {
         return false;
     }
-    fill_varint_object(_MC_LOGINSTART_PACKET_ID_, &packet->id);
+    nsmfm_fill_varint_object(_MC_LOGINSTART_PACKET_ID_, &packet->id);
     return true;
 }

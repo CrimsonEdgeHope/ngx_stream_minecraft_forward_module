@@ -4,7 +4,7 @@
 #include "nsmfm_varint.h"
 #include "nsmfm_packet.h"
 
-ngx_int_t get_packet_length(minecraft_packet *packet, u_char **bufpos, u_char *buflast, int *byte_len) {
+ngx_int_t nsmfm_get_packet_length(minecraft_packet *packet, u_char **bufpos, u_char *buflast, int *byte_len) {
     if (packet == NULL || bufpos == NULL || buflast == NULL || byte_len == NULL) {
         return NGX_ERROR;
     }
@@ -15,7 +15,7 @@ ngx_int_t get_packet_length(minecraft_packet *packet, u_char **bufpos, u_char *b
     ngx_int_t  var;
 
     if (packet->length.num <= 0) {
-        var = parse_varint(*bufpos, byte_len);
+        var = nsmfm_parse_varint(*bufpos, byte_len);
         if (var <= 0) {
             if (buflast - *bufpos < _MC_VARINT_MAX_BYTE_LEN_) {
                 return NGX_AGAIN;
@@ -33,7 +33,7 @@ ngx_int_t get_packet_length(minecraft_packet *packet, u_char **bufpos, u_char *b
     return NGX_OK;
 }
 
-ngx_int_t receive_packet(minecraft_packet *packet, u_char *bufpos, u_char *buflast, nsmfm_packet_init init, ngx_pool_t *pool) {
+ngx_int_t nsmfm_receive_packet(minecraft_packet *packet, u_char *bufpos, u_char *buflast, nsmfm_packet_init init, ngx_pool_t *pool) {
     if (packet == NULL || bufpos == NULL || buflast == NULL) {
         return NGX_ERROR;
     }
@@ -51,7 +51,7 @@ ngx_int_t receive_packet(minecraft_packet *packet, u_char *bufpos, u_char *bufla
     return NGX_OK;
 }
 
-ngx_int_t retrieve_string(u_char **bufpos, minecraft_string *str, ngx_pool_t *pool) {
+ngx_int_t nsmfm_get_string(u_char **bufpos, minecraft_string *str, ngx_pool_t *pool) {
     if (bufpos == NULL || str == NULL || pool == NULL) {
         return NGX_ERROR;
     }
@@ -59,7 +59,7 @@ ngx_int_t retrieve_string(u_char **bufpos, minecraft_string *str, ngx_pool_t *po
         return NGX_ERROR;
     }
 
-    if (!parse_varint_fill_object(*bufpos, &str->len)) {
+    if (!nsmfm_parse_varint_fill_object(*bufpos, &str->len)) {
         return NGX_ERROR;
     }
 

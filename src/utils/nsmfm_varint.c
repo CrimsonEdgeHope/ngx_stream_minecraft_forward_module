@@ -18,7 +18,7 @@
 
  \returns Actual `int` value represented by the varint. If failure, `-1`.
 */
-int parse_varint(u_char *buf, int *byte_len) {
+int nsmfm_parse_varint(u_char *buf, int *byte_len) {
     if (buf == NULL) {
         return -1;
     }
@@ -62,12 +62,12 @@ int parse_varint(u_char *buf, int *byte_len) {
     return value;
 }
 
-bool parse_varint_fill_object(u_char *buf, minecraft_varint *var) {
+bool nsmfm_parse_varint_fill_object(u_char *buf, minecraft_varint *var) {
     if (var == NULL) {
         return false;
     }
     int res;
-    res = parse_varint(buf, &var->byte_len);
+    res = nsmfm_parse_varint(buf, &var->byte_len);
     if (res == -1) {
         return false;
     }
@@ -82,15 +82,15 @@ bool parse_varint_fill_object(u_char *buf, minecraft_varint *var) {
 
  \returns Actual `int` value represented by the varint. If failure, `-1`.
 */
-int parse_varint_object(minecraft_varint *var, int *byte_len) {
+int nsmfm_parse_varint_object(minecraft_varint *var, int *byte_len) {
     if (var == NULL) {
         return -1;
     }
 
-    return parse_varint(var->bytes, byte_len);
+    return nsmfm_parse_varint(var->bytes, byte_len);
 }
 
-void create_varint(int value, u_char *buffer, int *byte_len) {
+void nsmfm_create_varint(int value, u_char *buffer, int *byte_len) {
     int count = 0;
 
     for (;;) {
@@ -109,12 +109,12 @@ void create_varint(int value, u_char *buffer, int *byte_len) {
     }
 }
 
-void fill_varint_object(int value, minecraft_varint *res) {
+void nsmfm_fill_varint_object(int value, minecraft_varint *res) {
     if (value < 0 || res == NULL) {
         return;
     }
 
-    create_varint(value, res->bytes, &res->byte_len);
+    nsmfm_create_varint(value, res->bytes, &res->byte_len);
     res->num = value;
 }
 
@@ -127,7 +127,7 @@ void fill_varint_object(int value, minecraft_varint *res) {
 
  \returns `minecraft_varint` object pointer. If failure, `NULL`.
 */
-minecraft_varint *create_varint_object(int value, ngx_pool_t *pool) {
+minecraft_varint *nsmfm_create_varint_object(int value, ngx_pool_t *pool) {
     if (value < 0 || pool == NULL) {
         return NULL;
     }
@@ -139,7 +139,7 @@ minecraft_varint *create_varint_object(int value, ngx_pool_t *pool) {
         return NULL;
     }
 
-    fill_varint_object(value, res);
+    nsmfm_fill_varint_object(value, res);
 
     return res;
 }

@@ -129,7 +129,7 @@ static ngx_int_t nsmfm_handshake_preread(ngx_stream_session_t *s) {
     bufpos = c->buffer->pos;
 
     if (ctx->handshake->length.num <= 0) {
-        var = get_packet_length(ctx->handshake, &bufpos, c->buffer->last, &byte_len);
+        var = nsmfm_get_packet_length(ctx->handshake, &bufpos, c->buffer->last, &byte_len);
         if (var != NGX_OK) {
             return var;
         }
@@ -139,7 +139,7 @@ static ngx_int_t nsmfm_handshake_preread(ngx_stream_session_t *s) {
 
     if (!ctx->handshake->content) {
         bufpos = ctx->bufpos;
-        var = receive_packet(ctx->handshake, bufpos, c->buffer->last, nsmfm_handshake_packet_init, ctx->pool);
+        var = nsmfm_receive_packet(ctx->handshake, bufpos, c->buffer->last, nsmfm_handshake_packet_init, ctx->pool);
         if (var != NGX_OK) {
             return var;
         }
@@ -153,7 +153,7 @@ static ngx_int_t nsmfm_handshake_preread(ngx_stream_session_t *s) {
     handshake = ctx->handshake->content;
 
     bufpos = ctx->bufpos;
-    if (!parse_varint_fill_object(bufpos, &handshake->protocol_number)) {
+    if (!nsmfm_parse_varint_fill_object(bufpos, &handshake->protocol_number)) {
         ngx_log_error(NGX_LOG_ALERT, c->log, 0, "Cannot read protocol number");
         return NGX_ERROR;
     }
@@ -166,7 +166,7 @@ static ngx_int_t nsmfm_handshake_preread(ngx_stream_session_t *s) {
 
     bufpos += handshake->protocol_number.byte_len;
 
-    var = retrieve_string(&bufpos, &handshake->server_address, ctx->pool);
+    var = nsmfm_get_string(&bufpos, &handshake->server_address, ctx->pool);
     if (var != NGX_OK) {
         ngx_log_error(NGX_LOG_ALERT, c->log, 0, "Cannot read server hostname");
         return var;
@@ -180,7 +180,7 @@ static ngx_int_t nsmfm_handshake_preread(ngx_stream_session_t *s) {
 
     ngx_log_error(NGX_LOG_NOTICE, c->log, 0, "read remote port: %d", handshake->server_port);
 
-    fill_varint_object(bufpos[0], &handshake->next_state);
+    nsmfm_fill_varint_object(bufpos[0], &handshake->next_state);
 
     ngx_log_error(NGX_LOG_NOTICE, c->log, 0, "read next state: %d", handshake->next_state.num);
 
@@ -311,7 +311,7 @@ static ngx_int_t nsmfm_loginstart_preread(ngx_stream_session_t *s) {
     bufpos = ctx->bufpos;
 
     if (ctx->loginstart->length.num <= 0) {
-        var = get_packet_length(ctx->loginstart, &bufpos, c->buffer->last, &byte_len);
+        var = nsmfm_get_packet_length(ctx->loginstart, &bufpos, c->buffer->last, &byte_len);
         if (var != NGX_OK) {
             return var;
         }
@@ -322,7 +322,7 @@ static ngx_int_t nsmfm_loginstart_preread(ngx_stream_session_t *s) {
 
     if (!ctx->loginstart->content) {
         bufpos = ctx->bufpos;
-        var = receive_packet(ctx->loginstart, bufpos, c->buffer->last, nsmfm_loginstart_packet_init , ctx->pool);
+        var = nsmfm_receive_packet(ctx->loginstart, bufpos, c->buffer->last, nsmfm_loginstart_packet_init , ctx->pool);
         if (var != NGX_OK) {
             return var;
         }
@@ -337,7 +337,7 @@ static ngx_int_t nsmfm_loginstart_preread(ngx_stream_session_t *s) {
     loginstart = ctx->loginstart->content;
 
     bufpos = ctx->bufpos;
-    var = retrieve_string(&bufpos, &loginstart->username, ctx->pool);
+    var = nsmfm_get_string(&bufpos, &loginstart->username, ctx->pool);
     if (var != NGX_OK) {
         ngx_log_error(NGX_LOG_ALERT, c->log, 0, "Cannot read username");
         return var;

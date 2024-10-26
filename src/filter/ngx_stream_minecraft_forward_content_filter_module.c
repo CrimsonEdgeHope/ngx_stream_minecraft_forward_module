@@ -185,7 +185,7 @@ static ngx_int_t nsmfm_client_content_filter(ngx_stream_session_t *s, ngx_chain_
             new_hostname = old_handshake->server_address;
         } else {
             new_hostname.content = str->data;
-            fill_varint_object(str->len, &new_hostname.len);
+            nsmfm_fill_varint_object(str->len, &new_hostname.len);
         }
     } else {
         new_hostname = old_handshake->server_address;
@@ -198,7 +198,7 @@ static ngx_int_t nsmfm_client_content_filter(ngx_stream_session_t *s, ngx_chain_
     // https://wiki.vg/Protocol#Handshake
     // Packet id, Protocol Version varint, Prefixed string (Length varint + content), Server port, Next state.
     rc = 1 + protocol_number.byte_len + new_hostname.len.byte_len + new_hostname.len.num + _MC_PORT_LEN_ + 1;
-    fill_varint_object(rc, &new_handshake_content_len);
+    nsmfm_fill_varint_object(rc, &new_handshake_content_len);
 
     old_handshake_len = mctx->handshake->length.byte_len + mctx->handshake->length.num;
 
