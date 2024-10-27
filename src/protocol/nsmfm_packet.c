@@ -4,7 +4,7 @@
 #include "nsmfm_packet.h"
 #include "../utils/nsmfm_varint.h"
 
-bool nsmfm_handshake_packet_init(minecraft_packet *packet, ngx_pool_t *pool) {
+bool nsmfm_init_empty_handshake_packet(minecraft_packet *packet, ngx_pool_t *pool) {
     if (packet == NULL || pool == NULL) {
         return false;
     }
@@ -19,7 +19,7 @@ bool nsmfm_handshake_packet_init(minecraft_packet *packet, ngx_pool_t *pool) {
     return true;
 }
 
-bool nsmfm_loginstart_packet_init(minecraft_packet *packet, ngx_pool_t *pool) {
+bool nsmfm_init_empty_loginstart_packet(minecraft_packet *packet, ngx_pool_t *pool) {
     if (packet == NULL || pool == NULL) {
         return false;
     }

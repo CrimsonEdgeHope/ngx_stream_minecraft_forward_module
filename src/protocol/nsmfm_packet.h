@@ -52,14 +52,14 @@ typedef struct {
     minecraft_varint  next_state;
 } minecraft_handshake;
 
-bool nsmfm_handshake_packet_init(minecraft_packet *packet, ngx_pool_t *pool);
+bool nsmfm_init_empty_handshake_packet(minecraft_packet *packet, ngx_pool_t *pool);
 
 typedef struct {
     minecraft_string  username;
     minecraft_uuid    uuid;
 } minecraft_loginstart;
 
-bool nsmfm_loginstart_packet_init(minecraft_packet *packet, ngx_pool_t *pool);
+bool nsmfm_init_empty_loginstart_packet(minecraft_packet *packet, ngx_pool_t *pool);
 
 typedef struct {
     minecraft_string  json;

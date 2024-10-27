@@ -3,33 +3,69 @@ if [ $STREAM = NO ]; then
     exit 1
 fi
 
-srcdir="src"
-srcdir="$ngx_addon_dir/$srcdir"
-
-STREAM_INCS="$STREAM_INCS \
-$srcdir \
-$srcdir/filter \
-$srcdir/main \
-$srcdir/preread \
-$srcdir/protocol \
-$srcdir/utils"
-
+NSMFM_SRCDIR="src"
+NSMFM_SRCDIR="$ngx_addon_dir/$NSMFM_SRCDIR"
 NSMFM_MAIN="ngx_stream_minecraft_forward_module"
 NSMFM_FILTER="ngx_stream_minecraft_forward_content_filter_module"
 NSMFM_PREREAD="ngx_stream_minecraft_forward_preread_module"
 
-ngx_addon_name=$NSMFM_MAIN
-STREAM_MODULES="$STREAM_MODULES $NSMFM_MAIN $NSMFM_FILTER $NSMFM_PREREAD"
+NSMFM_INCS="$NSMFM_SRCDIR \
+$NSMFM_SRCDIR/filter \
+$NSMFM_SRCDIR/main \
+$NSMFM_SRCDIR/preread \
+$NSMFM_SRCDIR/protocol \
+$NSMFM_SRCDIR/utils"
 
-STREAM_MODULE_SRCS=" \
-$srcdir/main/ngx_stream_minecraft_forward_module.c \
-$srcdir/preread/nsmfpm_session.c \
-$srcdir/filter/ngx_stream_minecraft_forward_content_filter_module.c \
-$srcdir/filter/nsmfcfm_session.c \
-$srcdir/preread/ngx_stream_minecraft_forward_preread_module.c \
-$srcdir/protocol/nsmfm_packet.c \
-$srcdir/protocol/nsmfm_protocol_number.c \
-$srcdir/utils/nsmfm_hostname.c \
-$srcdir/utils/nsmfm_packet.c \
-$srcdir/utils/nsmfm_varint.c"
-NGX_ADDON_SRCS="$NGX_ADDON_SRCS $STREAM_MODULE_SRCS"
+NSMFM_DEPS="$NSMFM_SRCDIR/utils/nsmfm_hostname.h \
+$NSMFM_SRCDIR/utils/nsmfm_packet.h \
+$NSMFM_SRCDIR/utils/nsmfm_varint.h \
+$NSMFM_SRCDIR/protocol/nsmfm_packet.h \
+$NSMFM_SRCDIR/protocol/nsmfm_protocol_number.h"
+
+NSMFM_DEP_SRCS="$NSMFM_SRCDIR/utils/nsmfm_hostname.c \
+$NSMFM_SRCDIR/utils/nsmfm_packet.c \
+$NSMFM_SRCDIR/utils/nsmfm_varint.c \
+$NSMFM_SRCDIR/protocol/nsmfm_packet.c \
+$NSMFM_SRCDIR/protocol/nsmfm_protocol_number.c"
+
+NSMFM_MAIN_SRCS="\
+$NSMFM_SRCDIR/main/ngx_stream_minecraft_forward_module.c"
+
+NSMFM_PREREAD_SRCS="\
+$NSMFM_SRCDIR/preread/nsmfpm_session.c \
+$NSMFM_SRCDIR/preread/ngx_stream_minecraft_forward_preread_module.c"
+
+NSMFM_FILTER_SRCS="\
+$NSMFM_SRCDIR/filter/ngx_stream_minecraft_forward_content_filter_module.c \
+$NSMFM_SRCDIR/filter/nsmfcfm_session.c"
+
+NSMFM_SRCS="$NSMFM_MAIN_SRCS $NSMFM_PREREAD_SRCS $NSMFM_FILTER_SRCS $NSMFM_DEP_SRCS"
+
+ngx_addon_name="$NSMFM_MAIN"
+
+if [ -n "$ngx_module_link" ]; then
+    ngx_module_type=STREAM
+    ngx_module_libs=
+
+    ngx_module_incs="$NSMFM_INCS"
+    ngx_module_deps="$NSMFM_DEPS"
+    ngx_module_name="$NSMFM_MAIN"
+    ngx_module_srcs="$NSMFM_MAIN_SRCS $NSMFM_DEP_SRCS"
+    . auto/module
+
+    ngx_module_incs=""
+    ngx_module_deps=""
+
+    ngx_module_name="$NSMFM_FILTER"
+    ngx_module_srcs="$NSMFM_FILTER_SRCS $NSMFM_DEP_SRCS"
+    . auto/module
+
+    ngx_module_name="$NSMFM_PREREAD"
+    ngx_module_srcs="$NSMFM_PREREAD_SRCS $NSMFM_DEP_SRCS"
+    . auto/module
+else
+    STREAM_MODULES="$STREAM_MODULES $NSMFM_MAIN $NSMFM_FILTER $NSMFM_PREREAD"
+    NGX_ADDON_SRCS="$NGX_ADDON_SRCS $NSMFM_SRCS"
+    STREAM_INCS="$STREAM_INCS $NSMFM_INCS"
+    STREAM_DEPS="$STREAM_DEPS $NSMFM_DEPS"
+fi

@@ -1,0 +1,8 @@
+#ifndef _NGX_STREAM_MINECRAFT_FORWARD_PREREAD_MODULE_H_
+#define _NGX_STREAM_MINECRAFT_FORWARD_PREREAD_MODULE_H_
+
+#include <ngx_core.h>
+
+extern ngx_module_t ngx_stream_minecraft_forward_preread_module;
+
+#endif

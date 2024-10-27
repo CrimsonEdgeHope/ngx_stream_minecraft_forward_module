@@ -68,7 +68,7 @@ static ngx_int_t nsmfm_upstream_content_filter(ngx_stream_session_t *s, ngx_chai
     ngx_connection_t         *c;
     ngx_int_t                 rc;
 
-    nsmfpm_session_context    *mctx;
+    nsmfpm_session_context   *mctx;
     nsmfcfm_session_context  *cfctx;
     minecraft_handshake      *old_handshake;
 

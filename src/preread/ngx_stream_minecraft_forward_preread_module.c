@@ -139,7 +139,7 @@ static ngx_int_t nsmfpm_handshake(ngx_stream_session_t *s) {
 
     if (!ctx->handshake->content) {
         bufpos = ctx->bufpos;
-        var = nsmfm_receive_packet(ctx->handshake, bufpos, c->buffer->last, nsmfm_handshake_packet_init, ctx->pool);
+        var = nsmfm_receive_packet(ctx->handshake, bufpos, c->buffer->last, nsmfm_init_empty_handshake_packet, ctx->pool);
         if (var != NGX_OK) {
             return var;
         }
@@ -322,7 +322,7 @@ static ngx_int_t nsmfpm_loginstart(ngx_stream_session_t *s) {
 
     if (!ctx->loginstart->content) {
         bufpos = ctx->bufpos;
-        var = nsmfm_receive_packet(ctx->loginstart, bufpos, c->buffer->last, nsmfm_loginstart_packet_init , ctx->pool);
+        var = nsmfm_receive_packet(ctx->loginstart, bufpos, c->buffer->last, nsmfm_init_empty_loginstart_packet , ctx->pool);
         if (var != NGX_OK) {
             return var;
         }

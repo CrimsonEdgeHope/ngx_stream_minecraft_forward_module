@@ -34,7 +34,7 @@ void nsmfcfm_remove_session_context(ngx_stream_session_t *s) {
 
 #if (NGX_DEBUG)
     ngx_log_debug0(NGX_LOG_DEBUG_STREAM, s->connection->log, 0,
-        "ngx_stream_minecraft_forward_content_filter_module: Removing session context");
+                   "ngx_stream_minecraft_forward_content_filter_module: Removing session context");
 #endif
 
     if (ctx) {
