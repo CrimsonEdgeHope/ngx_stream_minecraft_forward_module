@@ -42,14 +42,12 @@ void nsmfpm_remove_session_context(ngx_stream_session_t *s) {
 #endif
 
     if (ctx->handshake) {
-        ctx->handshake->~MinecraftHandshake();
-        delete[] ctx->handshake;
-        ctx->handshake = NULL;
+        delete ctx->handshake;
+        ctx->handshake = nullptr;
     }
     if (ctx->loginstart) {
-        ctx->loginstart->~MinecraftLoginstart();
-        delete[] ctx->loginstart;
-        ctx->loginstart = NULL;
+        delete ctx->loginstart;
+        ctx->loginstart = nullptr;
     }
 
     if (ctx) {

@@ -43,7 +43,7 @@ ngx_int_t nsmfm_validate_hostname(ngx_str_t *str) {
     if (nsmfm_validate_hostname_regex == NULL) {
         return NGX_OK;
     }
-    return ngx_regex_exec(nsmfm_validate_hostname_regex, str, NULL, 0) >= 0;
+    return ngx_regex_exec(nsmfm_validate_hostname_regex, str, NULL, 0) >= 0 ? NGX_OK : NGX_ERROR;
 #else
     return NGX_OK;
 #endif

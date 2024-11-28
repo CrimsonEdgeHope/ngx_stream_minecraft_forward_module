@@ -123,18 +123,17 @@ static ngx_int_t nsmfpm_handshake(ngx_stream_session_t *s) {
     ctx = (nsmfpm_session_context *) nsmfpm_get_session_context(s);
 
     if (!ctx->handshake) {
-        ctx->handshake = (MinecraftHandshake *) ngx_pcalloc(ctx->pool, sizeof(MinecraftHandshake));
+        ctx->handshake = new MinecraftHandshake(ctx->pool);
         if (!ctx->handshake) {
             return NGX_ERROR;
         }
-        
-        *ctx->handshake = MinecraftHandshake(ctx->pool);
     }
     handshake = ctx->handshake;
 
     bufpos = c->buffer->pos;
+    ctx->bufpos = bufpos;
 
-    parse_var = MinecraftVarint::parse(handshake->length.bytes, &varint_byte_len);
+    parse_var = MinecraftVarint::parse(handshake->length->bytes, NULL);
     if (parse_var < 0) {
         return NGX_ERROR;
     } else if (parse_var == 0) {
@@ -143,9 +142,8 @@ static ngx_int_t nsmfpm_handshake(ngx_stream_session_t *s) {
             return rc;
         }
         
-        parse_var = MinecraftVarint::parse(handshake->length.bytes, &varint_byte_len);
+        parse_var = MinecraftVarint::parse(handshake->length->bytes, NULL);
         ngx_log_error(NGX_LOG_NOTICE, c->log, 0, "read varint, handshake content len: %d", parse_var);
-        bufpos += varint_byte_len;
         ctx->bufpos = bufpos;
     }
 
@@ -177,7 +175,7 @@ static ngx_int_t nsmfpm_handshake(ngx_stream_session_t *s) {
                 return NGX_ERROR;
             }
 
-            parse_var = handshake->length.bytes_length + MinecraftVarint::parse(handshake->length.bytes, NULL);
+            parse_var = handshake->length->bytes_length + MinecraftVarint::parse(handshake->length->bytes, NULL);
 
             buffer_remanent = c->buffer->last - c->buffer->start > (ssize_t)parse_var;
 
@@ -189,21 +187,21 @@ static ngx_int_t nsmfpm_handshake(ngx_stream_session_t *s) {
             }
 
             cfctx->in->buf->last = ngx_cpymem(cfctx->in->buf->last,
-                handshake->length.bytes, handshake->length.bytes_length);
+                handshake->length->bytes, handshake->length->bytes_length);
             
             cfctx->in->buf->last = ngx_cpymem(cfctx->in->buf->last,
-                handshake->id.bytes, handshake->id.bytes_length);
+                handshake->id->bytes, handshake->id->bytes_length);
             
             cfctx->in->buf->last = ngx_cpymem(cfctx->in->buf->last,
                 handshake->protocol_number->bytes, handshake->protocol_number->bytes_length);
             
             cfctx->in->buf->last = ngx_cpymem(cfctx->in->buf->last,
-                handshake->server_address->length.bytes,
-                handshake->server_address->length.bytes_length);
+                handshake->server_address->length->bytes,
+                handshake->server_address->length->bytes_length);
             
             cfctx->in->buf->last = ngx_cpymem(cfctx->in->buf->last,
                 handshake->server_address->content,
-                MinecraftVarint::parse(handshake->server_address->length.bytes, NULL));
+                MinecraftVarint::parse(handshake->server_address->length->bytes, NULL));
             
             port_char = (handshake->server_port & 0xFF00) >> 8;
             cfctx->in->buf->last = ngx_cpymem(cfctx->in->buf->last, &port_char, 1);
@@ -212,14 +210,6 @@ static ngx_int_t nsmfpm_handshake(ngx_stream_session_t *s) {
             
             cfctx->in->buf->last = ngx_cpymem(cfctx->in->buf->last,
                 handshake->next_state->bytes, handshake->next_state->bytes_length);
-
-            ngx_log_error(NGX_LOG_NOTICE, c->log, 0,
-                          "Preread: Protocol number: %d, "
-                          "Hostname provided: %s, "
-                          "Next state: %d",
-                          MinecraftVarint::parse(handshake->protocol_number->bytes, NULL),
-                          handshake->server_address->content,
-                          MinecraftVarint::parse(handshake->next_state->bytes, NULL));
 
             if (buffer_remanent) {
                 cfctx->in->buf->last = ngx_cpymem(cfctx->in->buf->last,
@@ -237,7 +227,6 @@ static ngx_int_t nsmfpm_handshake(ngx_stream_session_t *s) {
             return NGX_OK;
         case _MC_HANDSHAKE_LOGINSTART_STATE_:
             ctx->handler = nsmfpm_loginstart;
-            bufpos += varint_byte_len;
             ctx->bufpos = bufpos;
             break;
         case _MC_HANDSHAKE_TRANSFER_STATE_:
@@ -274,19 +263,17 @@ static ngx_int_t nsmfpm_loginstart(ngx_stream_session_t *s) {
     cfctx = nsmfcfm_get_session_context(s);
 
     if (!ctx->loginstart) {
-        ctx->loginstart = (MinecraftLoginstart *) ngx_pcalloc(ctx->pool, sizeof(MinecraftLoginstart));
+        ctx->loginstart = new MinecraftLoginstart(ctx->pool);
         if (!ctx->loginstart) {
             return NGX_ERROR;
         }
-        
-        *ctx->loginstart = MinecraftLoginstart(ctx->pool);
     }
 
     handshake = ctx->handshake;
     loginstart = ctx->loginstart;
     bufpos = ctx->bufpos;
 
-    parse_var = MinecraftVarint::parse(loginstart->length.bytes, &varint_byte_len);
+    parse_var = MinecraftVarint::parse(loginstart->length->bytes, &varint_byte_len);
     if (parse_var < 0) {
         return NGX_ERROR;
     }
@@ -296,9 +283,8 @@ static ngx_int_t nsmfpm_loginstart(ngx_stream_session_t *s) {
             return rc;
         }
         
-        parse_var = MinecraftVarint::parse(loginstart->length.bytes, &varint_byte_len);
+        parse_var = MinecraftVarint::parse(loginstart->length->bytes, NULL);
         ngx_log_error(NGX_LOG_NOTICE, c->log, 0, "read varint, loginstart content len: %d", parse_var);
-        bufpos += varint_byte_len;
         ctx->bufpos = bufpos;
     }
 
@@ -319,8 +305,8 @@ static ngx_int_t nsmfpm_loginstart(ngx_stream_session_t *s) {
         return NGX_ERROR;
     }
 
-    parse_var = handshake->length.bytes_length + MinecraftVarint::parse(handshake->length.bytes, NULL) +
-        loginstart->length.bytes_length + MinecraftVarint::parse(loginstart->length.bytes, NULL);
+    parse_var = handshake->length->bytes_length + MinecraftVarint::parse(handshake->length->bytes, NULL) +
+        loginstart->length->bytes_length + MinecraftVarint::parse(loginstart->length->bytes, NULL);
 
     cfctx->in->buf = ngx_create_temp_buf(cfctx->pool, parse_var);
 

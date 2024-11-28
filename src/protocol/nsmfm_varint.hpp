@@ -16,7 +16,7 @@ public:
     int    bytes_length : 3;
     
     static int parse(u_char *buf, int *bytes_length);
-    static MinecraftVarint create(int value);
+    static MinecraftVarint* create(int value);
 
     MinecraftVarint(u_char *bytes, int bytes_length) {
         if (bytes) {

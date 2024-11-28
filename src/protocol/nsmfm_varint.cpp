@@ -44,7 +44,7 @@ int MinecraftVarint::parse(u_char *buf, int *bytes_length) {
     return value;
 }
 
-MinecraftVarint MinecraftVarint::create(int value) {
+MinecraftVarint* MinecraftVarint::create(int value) {
     u_char  buf[_MC_VARINT_MAX_BYTE_LEN_];
 
     int count = 0;
@@ -60,5 +60,5 @@ MinecraftVarint MinecraftVarint::create(int value) {
         value >>= 7;
     }
 
-    return MinecraftVarint(buf, count);
+    return new MinecraftVarint(buf, count);
 }

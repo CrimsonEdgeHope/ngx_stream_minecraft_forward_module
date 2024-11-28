@@ -25,18 +25,21 @@ extern "C"
 
 class MinecraftString {
 public:
-    ngx_pool_t      *pool;
-    MinecraftVarint  length;
-    u_char          *content;
+    ngx_pool_t       *pool;
+    MinecraftVarint  *length;
+    u_char           *content;
 
     MinecraftString(ngx_pool_t *pool) {
         this->length = MinecraftVarint::create(0);
         this->pool = pool;
+        this->content = NULL;
     }
 
     MinecraftString() : MinecraftString(NULL) {}
 
     ~MinecraftString() {
+        delete length;
+        length = nullptr;
         if (pool && content) {
             ngx_pfree(pool, content);
         }
@@ -48,10 +51,10 @@ public:
 
 class MinecraftPacket {
 public:
-    MinecraftVarint  id;
-    MinecraftVarint  length;
-    u_char          *content;
-    ngx_pool_t      *pool;
+    MinecraftVarint  *id;
+    MinecraftVarint  *length;
+    u_char           *content;
+    ngx_pool_t       *pool;
 
     MinecraftPacket(int id, ngx_pool_t *pool) {
         this->length = MinecraftVarint::create(0);
@@ -60,18 +63,24 @@ public:
         this->content = NULL;
     }
 
-    ~MinecraftPacket() {
+    MinecraftPacket() : MinecraftPacket(0, NULL) {}
+
+    virtual ~MinecraftPacket() {
+        if (length) {
+            delete length;
+            length = nullptr;
+        }
+        if (id) {
+            delete id;
+            id = nullptr;
+        }
         if (pool && content) {
             ngx_pfree(pool, content);
         }
     }
 
-    virtual bool empty() {
-        return !content;
-    }
-
-    virtual ngx_int_t determine_length(ngx_stream_session_t *s, u_char **bufpos, u_char *buflast);
-    virtual ngx_int_t determine_content(ngx_stream_session_t *s, u_char **bufpos, u_char *buflast);
+    ngx_int_t determine_length(ngx_stream_session_t *s, u_char **bufpos, u_char *buflast);
+    ngx_int_t determine_content(ngx_stream_session_t *s, u_char **bufpos, u_char *buflast);
 };
 
 class MinecraftHandshake : public MinecraftPacket {
@@ -90,24 +99,20 @@ public:
 
     ~MinecraftHandshake() {
         if (protocol_number) {
-            protocol_number->~MinecraftVarint();
-            delete[] protocol_number;
+            delete protocol_number;
+            protocol_number = nullptr;
         }
         if (server_address) {
-            server_address->~MinecraftString();
-            delete[] server_address;
+            delete server_address;
+            server_address = nullptr;
         }
         if (next_state) {
-            next_state->~MinecraftVarint();
-            delete[] next_state;
+            delete next_state;
+            next_state = nullptr;
         }
     }
 
-    bool empty() override {
-        return !protocol_number || !server_address || !next_state;
-    }
-
-    ngx_int_t determine_content(ngx_stream_session_t *s, u_char **bufpos, u_char *buflast) override;
+    static ngx_int_t determine_content(ngx_stream_session_t *s, u_char **bufpos, u_char *buflast);
 };
 
 class MinecraftLoginstart : public MinecraftPacket {
@@ -122,20 +127,16 @@ public:
 
     ~MinecraftLoginstart() {
         if (username) {
-            username->~MinecraftString();
-            delete[] username;
+            delete username;
+            username = nullptr;
         }
         if (uuid) {
-            uuid->~MinecraftString();
-            delete[] uuid;
+            delete uuid;
+            uuid = nullptr;
         }
     }
 
-    bool empty() override {
-        return !username || !uuid;
-    }
-
-    ngx_int_t determine_content(ngx_stream_session_t *s, u_char **bufpos, u_char *buflast) override;
+    static ngx_int_t determine_content(ngx_stream_session_t *s, u_char **bufpos, u_char *buflast);
 };
 
 #endif

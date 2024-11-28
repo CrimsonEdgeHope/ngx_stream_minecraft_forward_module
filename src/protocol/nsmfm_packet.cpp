@@ -26,8 +26,8 @@ ngx_int_t MinecraftString::determine_length(ngx_stream_session_t *s, u_char **bu
         return NGX_ERROR;
     }
 
-    this->length.bytes_length = varint_bytes_length;
-    ngx_memcpy(this->length.bytes, *bufpos, varint_bytes_length);
+    this->length->bytes_length = varint_bytes_length;
+    ngx_memcpy(this->length->bytes, *bufpos, varint_bytes_length);
 
     (*bufpos) += varint_bytes_length;
 
@@ -53,8 +53,8 @@ ngx_int_t MinecraftPacket::determine_length(ngx_stream_session_t *s, u_char **bu
         return NGX_ERROR;
     }
 
-    this->length.bytes_length = varint_bytes_length;
-    ngx_memcpy(this->length.bytes, *bufpos, varint_bytes_length);
+    this->length->bytes_length = varint_bytes_length;
+    ngx_memcpy(this->length->bytes, *bufpos, varint_bytes_length);
 
     (*bufpos) += varint_bytes_length;
 
@@ -69,22 +69,22 @@ ngx_int_t MinecraftString::determine_content(ngx_stream_session_t *s, u_char **b
         return NGX_ERROR;
     }
 
-    ssize_t packet_length = MinecraftVarint::parse(this->length.bytes, NULL);
-    if (packet_length < 0) {
+    ssize_t str_length = MinecraftVarint::parse(this->length->bytes, NULL);
+    if (str_length < 0) {
         return NGX_ERROR;
     }
 
-    if (buflast - *bufpos < packet_length) {
+    if (buflast - *bufpos < str_length) {
         return NGX_AGAIN;
     }
     
-    this->content = (u_char *) ngx_pnalloc(this->pool, packet_length);
+    this->content = (u_char *) ngx_pnalloc(this->pool, str_length);
     if (!this->content) {
         return NGX_ERROR;
     }
-    ngx_memcpy(this->content, *bufpos, packet_length);
+    ngx_memcpy(this->content, *bufpos, str_length);
 
-    (*bufpos) += packet_length;
+    (*bufpos) += str_length;
     
     return NGX_OK;
 }
@@ -97,7 +97,7 @@ ngx_int_t MinecraftPacket::determine_content(ngx_stream_session_t *s, u_char **b
         return NGX_ERROR;
     }
     
-    ssize_t packet_length = MinecraftVarint::parse(this->length.bytes, NULL);
+    ssize_t packet_length = MinecraftVarint::parse(this->length->bytes, NULL);
     if (packet_length < 0) {
         return NGX_ERROR;
     }
@@ -112,7 +112,6 @@ ngx_int_t MinecraftPacket::determine_content(ngx_stream_session_t *s, u_char **b
     }
     ngx_memcpy(this->content, *bufpos, packet_length);
 
-    (*bufpos) += packet_length;
     
     return NGX_OK;
 }
@@ -134,7 +133,12 @@ ngx_int_t MinecraftHandshake::determine_content(ngx_stream_session_t *s, u_char 
 
     handshake = ctx->handshake;
 
-    parse_var = MinecraftVarint::parse(handshake->id.bytes, &varint_byte_len);
+    rc = ((MinecraftPacket *)handshake)->determine_content(s, bufpos, buflast);
+    if (rc != NGX_OK) {
+        return rc;
+    }
+
+    parse_var = MinecraftVarint::parse(handshake->id->bytes, &varint_byte_len);
     if (parse_var < 0) {
         ngx_log_error(NGX_LOG_ALERT, c->log, 0, "Cannot read packet id");
         return NGX_ERROR;
@@ -153,23 +157,23 @@ ngx_int_t MinecraftHandshake::determine_content(ngx_stream_session_t *s, u_char 
         ngx_log_error(NGX_LOG_ALERT, c->log, 0, "Cannot read protocol number");
         return NGX_ERROR;
     }
-    
-    handshake->protocol_number = (MinecraftVarint *) ngx_pcalloc(ctx->pool, sizeof(MinecraftVarint));
+
+    handshake->protocol_number = MinecraftVarint::create(parse_var);
     if (!handshake->protocol_number) {
         return NGX_ERROR;
     }
-    *handshake->protocol_number = MinecraftVarint::create(parse_var);
     if (!nsmfm_is_known_protocol(parse_var)) {
         ngx_log_error(NGX_LOG_ALERT, c->log, 0, "read varint, unknown protocol number: %d", parse_var);
         return NGX_ERROR;
     }
     ngx_log_error(NGX_LOG_NOTICE, c->log, 0, "read varint, protocol number: %d", parse_var);
+    (*bufpos) += varint_byte_len;
+    ctx->bufpos = *bufpos;
 
-    handshake->server_address = (MinecraftString *) ngx_pcalloc(ctx->pool, sizeof(MinecraftString));
+    handshake->server_address = new MinecraftString(ctx->pool);
     if (!handshake->server_address) {
         return NGX_ERROR;
     }
-    *handshake->server_address = MinecraftString(ctx->pool);
     rc = handshake->server_address->determine_length(s, bufpos, buflast);
     if (rc != NGX_OK) {
 cannot_read_server_address_string:
@@ -187,16 +191,21 @@ cannot_read_server_address_string:
 
     handshake->server_port |= (ctx->bufpos[0] << 8);
     handshake->server_port |= ctx->bufpos[1];
-    *bufpos += _MC_PORT_LEN_;
+    (*bufpos) += _MC_PORT_LEN_;
     ngx_log_error(NGX_LOG_NOTICE, c->log, 0, "read remote port: %d", handshake->server_port);
 
-    handshake->next_state = (MinecraftVarint *) ngx_pcalloc(ctx->pool, sizeof(MinecraftVarint));
+    parse_var = MinecraftVarint::parse(*bufpos, &varint_byte_len);
+    if (parse_var < 0) {
+        ngx_log_error(NGX_LOG_ALERT, c->log, 0, "Cannot read next state");
+        return NGX_ERROR;
+    }
+    handshake->next_state = MinecraftVarint::create(parse_var);
     if (!handshake->next_state) {
         return NGX_ERROR;
     }
-    *handshake->next_state = MinecraftVarint::create(parse_var);
     ngx_log_error(NGX_LOG_NOTICE, c->log, 0, "read varint, next state: %d", parse_var);
 
+    (*bufpos) += varint_byte_len;
     ctx->bufpos = *bufpos;
 
     return NGX_OK;
@@ -221,7 +230,12 @@ ngx_int_t MinecraftLoginstart::determine_content(ngx_stream_session_t *s, u_char
     handshake = ctx->handshake;
     loginstart = ctx->loginstart;
 
-    parse_var = MinecraftVarint::parse(loginstart->id.bytes, &varint_byte_len);
+    rc = ((MinecraftPacket *)loginstart)->determine_content(s, bufpos, buflast);
+    if (rc != NGX_OK) {
+        return rc;
+    }
+
+    parse_var = MinecraftVarint::parse(loginstart->id->bytes, &varint_byte_len);
     if (parse_var < 0) {
         ngx_log_error(NGX_LOG_ALERT, c->log, 0, "Cannot read packet id");
         return NGX_ERROR;
@@ -235,11 +249,10 @@ ngx_int_t MinecraftLoginstart::determine_content(ngx_stream_session_t *s, u_char
     (*bufpos) += varint_byte_len;
     ctx->bufpos = *bufpos;
 
-    loginstart->username = (MinecraftString *) ngx_pcalloc(ctx->pool, sizeof(MinecraftString));
+    loginstart->username = new MinecraftString(ctx->pool);
     if (!loginstart->username) {
         return NGX_ERROR;
     }
-    *loginstart->username = MinecraftString(ctx->pool);
     rc = loginstart->username->determine_length(s, bufpos, buflast);
     if (rc != NGX_OK) {
 cannot_read_username_string:
@@ -252,29 +265,22 @@ cannot_read_username_string:
     }
     ngx_log_error(NGX_LOG_NOTICE, c->log, 0, "read username: %s", loginstart->username->content);
 
+    ctx->bufpos = *bufpos;
+
     parse_var = MinecraftVarint::parse(handshake->protocol_number->bytes, NULL);
+    loginstart->uuid = new MinecraftString(ctx->pool);
+    loginstart->uuid->length = MinecraftVarint::create(_MC_UUID_BYTE_LEN_);
     if (parse_var >= MINECRAFT_1_19_3) {
-        uuid = loginstart->uuid;
         if (parse_var <= MINECRAFT_1_20_1) {
             (*bufpos)++;
         }
-
-        for (int i = 0; i < _MC_UUID_LITERAL_LEN_; ++i) {
-            uuid->content[i] = i % 2 ? (*bufpos[i / 2] & (u_char)0x0F) : ((*bufpos[i / 2] & (u_char)0xF0) >> 4);
-
-            if (uuid->content[i] <= 9) {
-                uuid->content[i] += '0';
-            } else if (uuid->content[i] >= 10 && uuid->content[i] <= 15) {
-                uuid->content[i] = 'a' + (uuid->content[i] - 10);
-            } else {
-                return NGX_ERROR;
-            }
+        rc = loginstart->uuid->determine_content(s, bufpos, buflast);
+        if (rc != NGX_OK) {
+            ngx_log_error(NGX_LOG_ALERT, c->log, 0, "Cannot read uuid");
+            return NGX_ERROR;
         }
-        uuid[_MC_UUID_LITERAL_LEN_] = 0;
 
-        ngx_log_error(NGX_LOG_NOTICE, c->log, 0, "read uuid: %s", uuid);
-
-        *bufpos += _MC_UUID_BYTE_LEN_;
+        // ngx_log_error(NGX_LOG_NOTICE, c->log, 0, "read uuid: %s", loginstart->uuid->content);
     }
     ctx->bufpos = *bufpos;
 
