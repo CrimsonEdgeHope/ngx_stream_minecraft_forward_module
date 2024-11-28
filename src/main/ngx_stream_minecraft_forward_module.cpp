@@ -110,7 +110,6 @@ static void *nsmfm_create_srv_conf(ngx_conf_t *cf) {
     if (rc != NGX_OK) {
         ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
                            "There's a problem adding hash key, possibly because of duplicate entry");
-        ngx_pfree(cf->pool, conf);
         return NULL;
     }
 

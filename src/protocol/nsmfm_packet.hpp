@@ -42,6 +42,7 @@ public:
         length = nullptr;
         if (pool && content) {
             ngx_pfree(pool, content);
+            content = NULL;
         }
     }
 
@@ -76,6 +77,7 @@ public:
         }
         if (pool && content) {
             ngx_pfree(pool, content);
+            content = NULL;
         }
     }
 

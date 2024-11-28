@@ -78,11 +78,12 @@ ngx_int_t MinecraftString::determine_content(ngx_stream_session_t *s, u_char **b
         return NGX_AGAIN;
     }
     
-    this->content = (u_char *) ngx_pnalloc(this->pool, str_length);
+    this->content = (u_char *) ngx_pnalloc(this->pool, str_length + 1);
     if (!this->content) {
         return NGX_ERROR;
     }
     ngx_memcpy(this->content, *bufpos, str_length);
+    this->content[str_length] = 0;
 
     (*bufpos) += str_length;
     
