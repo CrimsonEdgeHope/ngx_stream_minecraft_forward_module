@@ -1,9 +1,12 @@
+extern "C"
+{
 #include <ngx_core.h>
 #include <ngx_string.h>
 #include <ngx_hash.h>
 #include <ngx_stream.h>
 #include "ngx_stream_minecraft_forward_module.h"
 #include "../utils/nsmfm_hostname.h"
+}
 
 static void *nsmfm_create_srv_conf(ngx_conf_t *cf);
 static char *nsmfm_merge_srv_conf(ngx_conf_t *cf, void *prev, void *conf);
@@ -85,7 +88,7 @@ static void *nsmfm_create_srv_conf(ngx_conf_t *cf) {
     ngx_int_t         rc;
     nsmfm_srv_conf_t *conf;
 
-    conf = ngx_pcalloc(cf->pool, sizeof(nsmfm_srv_conf_t));
+    conf = (nsmfm_srv_conf_t *) ngx_pcalloc(cf->pool, sizeof(nsmfm_srv_conf_t));
     if (conf == NULL) {
         return NULL;
     }
@@ -95,7 +98,7 @@ static void *nsmfm_create_srv_conf(ngx_conf_t *cf) {
 
     conf->hostname_map_init.hash = &conf->hostname_map;
     conf->hostname_map_init.key = ngx_hash_key_lc;
-    conf->hostname_map_init.name = "minecraft_server_hostname";
+    conf->hostname_map_init.name = (char *)"minecraft_server_hostname";
     conf->hostname_map_init.pool = cf->pool;
     conf->hostname_map_init.temp_pool = cf->temp_pool;
     conf->hash_max_size = NGX_CONF_UNSET_SIZE;
@@ -122,9 +125,9 @@ static char *nsmfm_srv_conf_minecraft_server_hostname(ngx_conf_t *cf, ngx_comman
     ngx_str_t  *key;
     ngx_str_t  *val;
 
-    nsmfm_srv_conf_t *sc = conf;
+    nsmfm_srv_conf_t *sc = (nsmfm_srv_conf_t *) conf;
 
-    values = cf->args->elts;
+    values = (ngx_str_t *) cf->args->elts;
 
     key = &values[1];
     val = &values[2];
@@ -135,13 +138,13 @@ static char *nsmfm_srv_conf_minecraft_server_hostname(ngx_conf_t *cf, ngx_comman
         }
     }
 
-    if (!nsmfm_validate_hostname(key)) {
+    if (nsmfm_validate_hostname(key) != NGX_OK) {
         ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "Invalid entry: %V", key);
-        return NGX_CONF_ERROR;
+        return (char *)NGX_CONF_ERROR;
     }
-    if (!nsmfm_validate_hostname(val)) {
+    if (nsmfm_validate_hostname(val) != NGX_OK) {
         ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "Invalid value: %V", key);
-        return NGX_CONF_ERROR;
+        return (char *)NGX_CONF_ERROR;
     }
 
 conf_validation_pass:
@@ -149,10 +152,10 @@ conf_validation_pass:
     if (rc != NGX_OK) {
         ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
                            "There's a problem adding hash key, possibly because of duplicate entry");
-        return NGX_CONF_ERROR;
+        return (char *)NGX_CONF_ERROR;
     }
 
-    return NGX_CONF_OK;
+    return (char *)NGX_CONF_OK;
 }
 
 static char *nsmfm_merge_srv_conf(ngx_conf_t *cf, void *prev, void *conf) {
@@ -164,8 +167,8 @@ static char *nsmfm_merge_srv_conf(ngx_conf_t *cf, void *prev, void *conf) {
     ngx_uint_t         hashed_key;
     ngx_str_t         *val;
 
-    pconf = prev;
-    cconf = conf;
+    pconf = (nsmfm_srv_conf_t *) prev;
+    cconf = (nsmfm_srv_conf_t *) conf;
 
     ngx_conf_merge_value(cconf->enabled, pconf->enabled, 0);
     ngx_conf_merge_value(cconf->disconnect_on_nomatch, pconf->disconnect_on_nomatch, 0);
@@ -187,13 +190,13 @@ static char *nsmfm_merge_srv_conf(ngx_conf_t *cf, void *prev, void *conf) {
     pconf->hostname_map_init.bucket_size = ngx_align(pconf->hash_bucket_size, ngx_cacheline_size);
 
     rc = ngx_hash_init(&pconf->hostname_map_init,
-                       pconf->hostname_map_keys.keys.elts,
+                       (ngx_hash_key_t *)pconf->hostname_map_keys.keys.elts,
                        pconf->hostname_map_keys.keys.nelts);
 
     if (rc != NGX_OK) {
         ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
                            "There's a problem initializing hash table in stream context");
-        return NGX_CONF_ERROR;
+        return (char *)NGX_CONF_ERROR;
     }
 
     // MERGE HASH TABLE
@@ -207,7 +210,7 @@ static char *nsmfm_merge_srv_conf(ngx_conf_t *cf, void *prev, void *conf) {
         if (val == NULL) {
             ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
                                "A hash key previously in stream context becomes missing?! This should not happen");
-            return NGX_CONF_ERROR;
+            return (char *)NGX_CONF_ERROR;
         }
 
         rc = ngx_hash_add_key(&cconf->hostname_map_keys, key, val, NGX_HASH_READONLY_KEY);
@@ -215,7 +218,7 @@ static char *nsmfm_merge_srv_conf(ngx_conf_t *cf, void *prev, void *conf) {
             ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
                                "There's a problem merging hash table%s",
                                rc == NGX_BUSY ? " because of duplicate entry" : "");
-            return NGX_CONF_ERROR;
+            return (char *)NGX_CONF_ERROR;
         }
     }
 
@@ -223,44 +226,18 @@ static char *nsmfm_merge_srv_conf(ngx_conf_t *cf, void *prev, void *conf) {
     cconf->hostname_map_init.bucket_size = ngx_align(cconf->hash_bucket_size, ngx_cacheline_size);
 
     rc = ngx_hash_init(&cconf->hostname_map_init,
-                       cconf->hostname_map_keys.keys.elts,
+                       (ngx_hash_key_t *)cconf->hostname_map_keys.keys.elts,
                        cconf->hostname_map_keys.keys.nelts);
 
     if (rc != NGX_OK) {
         ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
                            "There's a problem initializing hash table in server context");
-        return NGX_CONF_ERROR;
+        return (char *)NGX_CONF_ERROR;
     }
 
-    return NGX_CONF_OK;
+    return (char *)NGX_CONF_OK;
 }
 
-#if (NGX_PCRE)
-ngx_regex_t *nsmfm_validate_hostname_regex = NULL;
-#endif
-
 static ngx_int_t nsmfm_pre_init(ngx_conf_t *cf) {
-#if (NGX_PCRE)
-    ngx_regex_compile_t rc;
-
-    u_char errstr[NGX_MAX_CONF_ERRSTR];
-
-    ngx_str_t pattern = ngx_string("(?!^.{253,}$)(?:(^(?!-)[a-zA-Z0-9-]{1,63}(?<!-)$|(^((?!-)[a-zA-Z0-9-]{1,63}(?<!-)\\.)+[a-zA-Z]{2,6}$)|(^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$)))");
-
-    ngx_memzero(&rc, sizeof(ngx_regex_compile_t));
-
-    rc.pattern = pattern;
-    rc.pool = cf->pool;
-    rc.err.len = NGX_MAX_CONF_ERRSTR;
-    rc.err.data = errstr;
-    rc.options = NGX_REGEX_CASELESS;
-
-    if (ngx_regex_compile(&rc) != NGX_OK) {
-        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "%V", &rc.err);
-        return NGX_ERROR;
-    }
-
-    nsmfm_validate_hostname_regex = rc.regex;
-#endif
-    return NGX_OK;
+    return nsmfm_init_hostname_regex(cf);
 }

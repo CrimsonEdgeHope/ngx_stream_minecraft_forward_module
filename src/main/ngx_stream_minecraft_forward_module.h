@@ -17,8 +17,4 @@ typedef struct {
 
 extern ngx_module_t ngx_stream_minecraft_forward_module;
 
-#if (NGX_PCRE)
-extern ngx_regex_t *nsmfm_validate_hostname_regex;
-#endif
-
 #endif

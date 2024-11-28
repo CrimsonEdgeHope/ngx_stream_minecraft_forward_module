@@ -1,8 +1,7 @@
 #include "nsmfm_protocol_number.h"
-#include "../utils/nsmfm_varint.h"
 
-bool nsmfm_is_known_protocol(minecraft_varint var) {
-    switch (var.num) {
+ngx_int_t nsmfm_is_known_protocol(int var) {
+    switch (var) {
         case MINECRAFT_1_21_3:
         case MINECRAFT_1_21_1:
         case MINECRAFT_1_20_6:
@@ -44,8 +43,8 @@ bool nsmfm_is_known_protocol(minecraft_varint var) {
         case MINECRAFT_1_9_1:
         case MINECRAFT_1_9:
         case MINECRAFT_1_8_9:
-            return true;
+            return 1;
         default:
-            return false;
+            return 0;
     }
 }
