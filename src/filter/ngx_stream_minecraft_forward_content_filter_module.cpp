@@ -123,7 +123,8 @@ static ngx_int_t nsmfm_client_content_filter(ngx_stream_session_t *s, ngx_chain_
     int                       old_handshake_len; /* This includes varint byte len */
     MinecraftVarint          *new_handshake_content_len;
 
-    MinecraftString           new_hostname;
+    MinecraftString          *new_hostname;
+    bool                      newnew = false;
     MinecraftVarint           protocol_number;
 
     ngx_str_t                *str = NULL;
@@ -193,24 +194,26 @@ static ngx_int_t nsmfm_client_content_filter(ngx_stream_session_t *s, ngx_chain_
                 ngx_log_error(NGX_LOG_NOTICE, c->log, 0, "Closing connection because of no hostname match");
                 goto filter_failure;
             }
-            new_hostname = *old_handshake->server_address;
+            new_hostname = old_handshake->server_address;
         } else {
-            new_hostname.length = MinecraftVarint::create(str->len);
-            new_hostname.content = str->data;
-            new_hostname.pool = NULL;
+            new_hostname = new MinecraftString();
+            new_hostname->length = MinecraftVarint::create(str->len);
+            new_hostname->content = str->data;
+            new_hostname->pool = NULL;
+            newnew = true;
         }
     } else {
-        new_hostname = *old_handshake->server_address;
+        new_hostname = old_handshake->server_address;
     }
 
-    if (MinecraftVarint::parse(new_hostname.length->bytes, NULL) <= 0) {
+    if (MinecraftVarint::parse(new_hostname->length->bytes, NULL) <= 0) {
         goto filter_failure;
     }
 
     // https://wiki.vg/Protocol#Handshake
     // Packet id, Protocol Version varint, Prefixed string (Length varint + content), Server port, Next state.
-    parsed_var = 1 + protocol_number.bytes_length + new_hostname.length->bytes_length
-        + MinecraftVarint::parse(new_hostname.length->bytes, NULL) + _MC_PORT_LEN_ + 1;
+    parsed_var = 1 + protocol_number.bytes_length + new_hostname->length->bytes_length
+        + MinecraftVarint::parse(new_hostname->length->bytes, NULL) + _MC_PORT_LEN_ + 1;
         new_handshake_content_len = MinecraftVarint::create(parsed_var);
 
     old_handshake_len = mctx->handshake->length->bytes_length + MinecraftVarint::parse(mctx->handshake->length->bytes, NULL);
@@ -283,8 +286,8 @@ static ngx_int_t nsmfm_client_content_filter(ngx_stream_session_t *s, ngx_chain_
     new_chain->buf->last = ngx_cpymem(new_chain->buf->last, new_handshake_content_len->bytes, new_handshake_content_len->bytes_length);
     new_chain->buf->last = ngx_cpymem(new_chain->buf->last, mctx->handshake->id->bytes, mctx->handshake->id->bytes_length);
     new_chain->buf->last = ngx_cpymem(new_chain->buf->last, protocol_number.bytes, protocol_number.bytes_length);
-    new_chain->buf->last = ngx_cpymem(new_chain->buf->last, new_hostname.length->bytes, new_hostname.length->bytes_length);
-    new_chain->buf->last = ngx_cpymem(new_chain->buf->last, new_hostname.content, MinecraftVarint::parse(new_hostname.length->bytes, NULL));
+    new_chain->buf->last = ngx_cpymem(new_chain->buf->last, new_hostname->length->bytes, new_hostname->length->bytes_length);
+    new_chain->buf->last = ngx_cpymem(new_chain->buf->last, new_hostname->content, MinecraftVarint::parse(new_hostname->length->bytes, NULL));
     pchar = (old_handshake->server_port & 0xFF00) >> 8;
     new_chain->buf->last = ngx_cpymem(new_chain->buf->last, &pchar, 1);
     pchar = (old_handshake->server_port & 0x00FF);
@@ -323,7 +326,7 @@ static ngx_int_t nsmfm_client_content_filter(ngx_stream_session_t *s, ngx_chain_
                   "Filter: Provided hostname: %s, "
                   "New hostname string: %s",
                   old_handshake->server_address->content,
-                  new_hostname.content);
+                  new_hostname->content);
 
     // https://nginx.org/en/docs/dev/development_guide.html#http_body_buffers_reuse
 
@@ -401,6 +404,10 @@ chain_update:
     }
 
 end_of_filter:
+    if (newnew) {
+        delete new_hostname;
+    }
+    
     rc = cfctx->fail ? NGX_ERROR : rc;
     if (cfctx->fail) {
         if (!cfctx->pinged) {
