@@ -13,7 +13,7 @@ extern "C"
 
 ngx_stream_filter_pt  ngx_stream_next_filter;
 
-static ngx_str_t *get_new_hostname_str(nsmfm_srv_conf_t *sconf, u_char *buf, size_t len);
+static MinecraftString *nsmfm_get_new_hostname(nsmfm_srv_conf_t *sconf, u_char *buf, size_t len);
 
 static ngx_int_t nsmfm_content_filter(ngx_stream_session_t *s, ngx_chain_t *chain_in, ngx_uint_t from_upstream);
 static ngx_int_t nsmfm_client_content_filter(ngx_stream_session_t *s, ngx_chain_t *chain_in);
@@ -47,12 +47,23 @@ ngx_module_t ngx_stream_minecraft_forward_content_filter_module = {
     NGX_MODULE_V1_PADDING  /* No padding */
 };
 
-static ngx_str_t *get_new_hostname_str(nsmfm_srv_conf_t *sconf, u_char *buf, size_t len) {
+static MinecraftString *nsmfm_get_new_hostname(nsmfm_srv_conf_t *sconf, u_char *buf, size_t len) {
     if (sconf == NULL || buf == NULL) {
         return NULL;
     }
 
-    return (ngx_str_t *)ngx_hash_find(&sconf->hostname_map, ngx_hash_key(buf, len), buf, len);
+    ngx_str_t *res;
+    
+    res = (ngx_str_t *) ngx_hash_find(&sconf->hostname_map, ngx_hash_key(buf, len), buf, len);
+    if (!res) {
+        return NULL;
+    }
+
+    MinecraftString *r;
+    r = new MinecraftString();
+    r->length = MinecraftVarint::create(res->len);
+    r->content = res->data;
+    return r;
 }
 
 static ngx_int_t nsmfm_content_filter(ngx_stream_session_t *s, ngx_chain_t *chain_in, ngx_uint_t from_upstream) {
@@ -73,7 +84,6 @@ static ngx_int_t nsmfm_upstream_content_filter(ngx_stream_session_t *s, ngx_chai
 
     nsmfpm_session_context   *mctx;
     nsmfcfm_session_context  *cfctx;
-    MinecraftHandshake       *old_handshake;
 
     c = s->connection;
 
@@ -100,9 +110,7 @@ static ngx_int_t nsmfm_upstream_content_filter(ngx_stream_session_t *s, ngx_chai
         goto end_of_upstream_content_filter;
     }
 
-    old_handshake = mctx->handshake;
-
-    if (MinecraftVarint::parse(old_handshake->next_state->bytes, NULL) == _MC_HANDSHAKE_STATUS_STATE_) {
+    if (MinecraftVarint::parse(mctx->handshake->next_state->bytes, NULL) == _MC_HANDSHAKE_STATUS_STATE_) {
         if (rc == NGX_OK) {
             cfctx->pinged = true;
         }
@@ -119,17 +127,12 @@ static ngx_int_t nsmfm_client_content_filter(ngx_stream_session_t *s, ngx_chain_
     nsmfcfm_session_context  *cfctx;
     nsmfm_srv_conf_t         *sconf;
 
-    MinecraftHandshake       *old_handshake;
-    int                       old_handshake_len; /* This includes varint byte len */
-    MinecraftVarint          *new_handshake_content_len;
-
-    MinecraftString          *new_hostname;
-    bool                      newnew = false;
-    MinecraftVarint           protocol_number;
-
-    ngx_str_t                *str = NULL;
-    u_char                    pchar;
+    u_char                    port_char;
     int                       parsed_var;
+    int                       old_len;
+    MinecraftVarint          *old_content_len;
+    MinecraftVarint          *new_content_len = NULL;
+    MinecraftString          *new_hostname;
 
     int                       in_buf_len;
     int                       gathered_buf_len;
@@ -137,7 +140,6 @@ static ngx_int_t nsmfm_client_content_filter(ngx_stream_session_t *s, ngx_chain_
     int                       split_remnant_len;
     ngx_chain_t              *new_chain;
     ngx_chain_t              *split_remnant_chain;
-
     ngx_chain_t             **link_i;
     ngx_chain_t              *append_i;
 
@@ -148,7 +150,6 @@ static ngx_int_t nsmfm_client_content_filter(ngx_stream_session_t *s, ngx_chain_
     }
 
     mctx = nsmfpm_get_session_context(s);
-    old_handshake = mctx->handshake;
 
     c->log->action = (char *) "filtering minecraft packet";
 
@@ -161,7 +162,7 @@ static ngx_int_t nsmfm_client_content_filter(ngx_stream_session_t *s, ngx_chain_
         return ngx_stream_next_filter(s, chain_in, 0);
     }
 
-    parsed_var = MinecraftVarint::parse(old_handshake->next_state->bytes, NULL);
+    parsed_var = MinecraftVarint::parse(mctx->handshake->next_state->bytes, NULL);
 
     if (!sconf->replace_on_ping && parsed_var != _MC_HANDSHAKE_LOGINSTART_STATE_) {
         return ngx_stream_next_filter(s, chain_in, 0);
@@ -183,27 +184,22 @@ static ngx_int_t nsmfm_client_content_filter(ngx_stream_session_t *s, ngx_chain_
             goto filter_failure;
     }
 
-    protocol_number = *old_handshake->protocol_number;
+    old_content_len = mctx->handshake->length;
+    old_len = MinecraftVarint::parse(old_content_len->bytes, NULL) + old_content_len->bytes_length;
 
     if (sconf->replace_on_ping) {
-        str = get_new_hostname_str(sconf,
-            old_handshake->server_address->content,
-            MinecraftVarint::parse(old_handshake->server_address->length->bytes, NULL));
-        if (str == NULL) {
+        new_hostname = nsmfm_get_new_hostname(sconf,
+            mctx->handshake->server_address->content,
+            MinecraftVarint::parse(mctx->handshake->server_address->length->bytes, NULL));
+        if (!new_hostname) {
             if (sconf->disconnect_on_nomatch) {
                 ngx_log_error(NGX_LOG_NOTICE, c->log, 0, "Closing connection because of no hostname match");
                 goto filter_failure;
             }
-            new_hostname = old_handshake->server_address;
-        } else {
-            new_hostname = new MinecraftString();
-            new_hostname->length = MinecraftVarint::create(str->len);
-            new_hostname->content = str->data;
-            new_hostname->pool = NULL;
-            newnew = true;
+            new_hostname = mctx->handshake->server_address;
         }
     } else {
-        new_hostname = old_handshake->server_address;
+        new_hostname = mctx->handshake->server_address;
     }
 
     if (MinecraftVarint::parse(new_hostname->length->bytes, NULL) <= 0) {
@@ -212,19 +208,10 @@ static ngx_int_t nsmfm_client_content_filter(ngx_stream_session_t *s, ngx_chain_
 
     // https://wiki.vg/Protocol#Handshake
     // Packet id, Protocol Version varint, Prefixed string (Length varint + content), Server port, Next state.
-    parsed_var = 1 + protocol_number.bytes_length + new_hostname->length->bytes_length
+    parsed_var = 1 + mctx->handshake->protocol_number->bytes_length + new_hostname->length->bytes_length
         + MinecraftVarint::parse(new_hostname->length->bytes, NULL) + _MC_PORT_LEN_ + 1;
-        new_handshake_content_len = MinecraftVarint::create(parsed_var);
 
-    old_handshake_len = mctx->handshake->length->bytes_length + MinecraftVarint::parse(mctx->handshake->length->bytes, NULL);
-
-#if (NGX_DEBUG)
-    ngx_log_debug(NGX_LOG_DEBUG_STREAM, c->log, 0,
-                  "old_handshake_len (including varint): %d, "
-                  "new_handshake_len (content): %d",
-                  old_handshake_len,
-                  parsed_var);
-#endif
+    new_content_len = MinecraftVarint::create(parsed_var);
 
     target_chain_node = NULL;
 
@@ -241,10 +228,10 @@ static ngx_int_t nsmfm_client_content_filter(ngx_stream_session_t *s, ngx_chain_
 
         gathered_buf_len += in_buf_len;
         if (ln->buf->last_buf) {
-            if (gathered_buf_len < old_handshake_len) {
+            if (gathered_buf_len < old_len) {
                 ngx_log_error(NGX_LOG_EMERG, c->log, 0,
                               "Incomplete chain of buffer. Expected %d, gathered %d",
-                              old_handshake_len, gathered_buf_len);
+                              old_len, gathered_buf_len);
                 goto filter_failure;
             }
         }
@@ -253,13 +240,13 @@ static ngx_int_t nsmfm_client_content_filter(ngx_stream_session_t *s, ngx_chain_
         ngx_log_debug(NGX_LOG_DEBUG_STREAM, c->log, 0, "gathered_buf_len: %d", gathered_buf_len);
 #endif
 
-        if (gathered_buf_len >= old_handshake_len) {
+        if (gathered_buf_len >= old_len) {
             target_chain_node = ln;
             break;
         }
     }
 
-    split_remnant_len = gathered_buf_len - old_handshake_len;
+    split_remnant_len = gathered_buf_len - old_len;
     split_remnant_chain = NULL;
 
     new_chain = ngx_chain_get_free_buf(c->pool, &cfctx->free_chain);
@@ -269,8 +256,7 @@ static ngx_int_t nsmfm_client_content_filter(ngx_stream_session_t *s, ngx_chain_
     }
 
     new_chain->buf->pos = (u_char *) ngx_pnalloc(c->pool,
-        (MinecraftVarint::parse(new_handshake_content_len->bytes, NULL)
-        + new_handshake_content_len->bytes_length) * sizeof(u_char));
+        (MinecraftVarint::parse(new_content_len->bytes, NULL) + new_content_len->bytes_length) * sizeof(u_char));
     if (new_chain->buf->pos == NULL) {
         ngx_log_error(NGX_LOG_EMERG, c->log, 0, "Cannot initialize new chain buf space");
         goto filter_failure;
@@ -278,21 +264,33 @@ static ngx_int_t nsmfm_client_content_filter(ngx_stream_session_t *s, ngx_chain_
 
     new_chain->buf->start = new_chain->buf->pos;
     new_chain->buf->last = new_chain->buf->pos;
-    new_chain->buf->end = new_chain->buf->start + (MinecraftVarint::parse(new_handshake_content_len->bytes, NULL)
-        + new_handshake_content_len->bytes_length);
+    new_chain->buf->end = new_chain->buf->start +
+        (MinecraftVarint::parse(new_content_len->bytes, NULL) + new_content_len->bytes_length);
     new_chain->buf->tag = (ngx_buf_tag_t)&ngx_stream_minecraft_forward_content_filter_module;
     new_chain->buf->memory = 1;
 
-    new_chain->buf->last = ngx_cpymem(new_chain->buf->last, new_handshake_content_len->bytes, new_handshake_content_len->bytes_length);
-    new_chain->buf->last = ngx_cpymem(new_chain->buf->last, mctx->handshake->id->bytes, mctx->handshake->id->bytes_length);
-    new_chain->buf->last = ngx_cpymem(new_chain->buf->last, protocol_number.bytes, protocol_number.bytes_length);
-    new_chain->buf->last = ngx_cpymem(new_chain->buf->last, new_hostname->length->bytes, new_hostname->length->bytes_length);
-    new_chain->buf->last = ngx_cpymem(new_chain->buf->last, new_hostname->content, MinecraftVarint::parse(new_hostname->length->bytes, NULL));
-    pchar = (old_handshake->server_port & 0xFF00) >> 8;
-    new_chain->buf->last = ngx_cpymem(new_chain->buf->last, &pchar, 1);
-    pchar = (old_handshake->server_port & 0x00FF);
-    new_chain->buf->last = ngx_cpymem(new_chain->buf->last, &pchar, 1);
-    new_chain->buf->last = ngx_cpymem(new_chain->buf->last, old_handshake->next_state->bytes, old_handshake->next_state->bytes_length);
+    new_chain->buf->last = ngx_cpymem(new_chain->buf->last,
+        new_content_len->bytes, new_content_len->bytes_length);
+    
+    new_chain->buf->last = ngx_cpymem(new_chain->buf->last,
+        mctx->handshake->id->bytes, mctx->handshake->id->bytes_length);
+    
+    new_chain->buf->last = ngx_cpymem(new_chain->buf->last,
+        mctx->handshake->protocol_number->bytes, mctx->handshake->protocol_number->bytes_length);
+    
+    new_chain->buf->last = ngx_cpymem(new_chain->buf->last,
+        new_hostname->length->bytes, new_hostname->length->bytes_length);
+    
+    new_chain->buf->last = ngx_cpymem(new_chain->buf->last,
+        new_hostname->content, MinecraftVarint::parse(new_hostname->length->bytes, NULL));
+    
+    port_char = (mctx->handshake->server_port & 0xFF00) >> 8;
+    new_chain->buf->last = ngx_cpymem(new_chain->buf->last, &port_char, 1);
+    port_char = (mctx->handshake->server_port & 0x00FF);
+    new_chain->buf->last = ngx_cpymem(new_chain->buf->last, &port_char, 1);
+    
+    new_chain->buf->last = ngx_cpymem(new_chain->buf->last,
+        mctx->handshake->next_state->bytes, mctx->handshake->next_state->bytes_length);
 
 #if (NGX_DEBUG)
     ngx_log_debug1(NGX_LOG_DEBUG_STREAM, c->log, 0, "split_remnant_len: %d", split_remnant_len);
@@ -325,7 +323,7 @@ static ngx_int_t nsmfm_client_content_filter(ngx_stream_session_t *s, ngx_chain_
     ngx_log_error(NGX_LOG_INFO, c->log, 0,
                   "Filter: Provided hostname: %s, "
                   "New hostname string: %s",
-                  old_handshake->server_address->content,
+                  mctx->handshake->server_address->content,
                   new_hostname->content);
 
     // https://nginx.org/en/docs/dev/development_guide.html#http_body_buffers_reuse
@@ -387,7 +385,7 @@ chain_update:
                             &cfctx->out,
                             (ngx_buf_tag_t)&ngx_stream_minecraft_forward_content_filter_module);
 
-    if (MinecraftVarint::parse(old_handshake->next_state->bytes, NULL) == _MC_HANDSHAKE_STATUS_STATE_) {
+    if (MinecraftVarint::parse(mctx->handshake->next_state->bytes, NULL) == _MC_HANDSHAKE_STATUS_STATE_) {
         if (sconf->replace_on_ping) {
             switch (rc) {
                 case NGX_OK:
@@ -404,9 +402,7 @@ chain_update:
     }
 
 end_of_filter:
-    if (newnew) {
-        delete new_hostname;
-    }
+    delete new_content_len;
     
     rc = cfctx->fail ? NGX_ERROR : rc;
     if (cfctx->fail) {
