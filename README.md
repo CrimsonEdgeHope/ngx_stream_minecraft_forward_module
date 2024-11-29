@@ -9,7 +9,7 @@
 > [!IMPORTANT]
 > - This module relies on [stream module](https://nginx.org/en/docs/stream/ngx_stream_core_module.html).
 > - Only suitable for Minecraft Java protocol since Netty rewrite.
-> - Nginx no earlier than 1.11.5 can pass compilation with this module.
+> - This module uses C++. Add `--with-ld-opt="-lstdc++"` whilst compiling Nginx.
 
 ## Directives
 
@@ -21,6 +21,8 @@
 
 > [!CAUTION]
 > Set to `on` only when upstream server is a Minecraft Java server, otherwise proxy won't function properly.
+
+<hr/>
 
 - Syntax: `minecraft_server_hostname  hostname.to.be.replaced  new.hostname  [arbitrary];` <br/>
   Default: None <br/>
@@ -38,11 +40,15 @@ minecraft_server_hostname  a.domain.for.example.com        new.domain.for.exampl
 minecraft_server_hostname  another.domain.for.example.com  new.domain.for.example.com;
 ```
 
+<hr/>
+
 - Syntax: `minecraft_server_hostname_hash_max_size  size;` <br/>
   Default: `minecraft_server_hostname_hash_max_size  512;` <br/>
   Context: stream, server <br/>
 
   Set the maximum size of hash tables used by `minecraft_server_hostname` directive.
+
+<hr/>
 
 - Syntax: `minecraft_server_hostname_hash_bucket_size  size;` <br/>
   Default: `minecraft_server_hostname_hash_bucket_size  64;` <br/>
@@ -50,11 +56,15 @@ minecraft_server_hostname  another.domain.for.example.com  new.domain.for.exampl
 
   Set the bucket size for hash tables used by `minecraft_server_hostname` directive.
 
+<hr/>
+
 - Syntax: `minecraft_server_hostname_disconnect_on_nomatch  off|on;` <br/>
   Default: `minecraft_server_hostname_disconnect_on_nomatch  off;` <br/>
   Context: stream, server <br/>
 
   Close connection if client-provided server hostname matches no replacement.
+
+<hr/>
 
 - Syntax: `minecraft_server_hostname_replace_on_ping  off|on;` <br/>
   Default: `minecraft_server_hostname_replace_on_ping  on;` <br/>
