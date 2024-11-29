@@ -7,6 +7,8 @@ on:
     paths:
       - "**/*.c"
       - "**/*.h"
+      - "**/*.cpp"
+      - "**/*.hpp"
       - "config"
       - "!.clang-format"
       - "!LICENSE"
@@ -18,47 +20,101 @@ on:
 
 jobs:
   compile:
-    name: Compile ${{ matrix.ngx.nginx_version }} (${{ matrix.ngx.gcc_image }})
+    name: Compile ${{ matrix.nginx_version }} (${{ matrix.gcc_image }})
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
       matrix:
-        ngx: [
-          { gcc_image: "gcc:10.2", nginx_version: "1.17.10" },
-          { gcc_image: "gcc:10.2", nginx_version: "1.18.0" },
-          { gcc_image: "gcc:10.2", nginx_version: "1.19.3" },
-          { gcc_image: "gcc:10.2", nginx_version: "1.19.10" },
-          { gcc_image: "gcc:10.2", nginx_version: "1.20.2" },
-          { gcc_image: "gcc:10.2", nginx_version: "1.21.1" },
-          { gcc_image: "gcc:10.2", nginx_version: "1.21.6" },
-          { gcc_image: "gcc:10.2", nginx_version: "1.22.1" },
-          { gcc_image: "gcc:10.2", nginx_version: "1.23.2" },
-          { gcc_image: "gcc:10.2", nginx_version: "1.23.3" },
-          { gcc_image: "gcc:10.2", nginx_version: "1.23.4" },
-          { gcc_image: "gcc:10.2", nginx_version: "1.24.0" },
-          { gcc_image: "gcc:10.2", nginx_version: "1.25.0" },
-          { gcc_image: "gcc:10.2", nginx_version: "1.25.4" },
-          { gcc_image: "gcc:10.2", nginx_version: "1.25.5" },
-          { gcc_image: "gcc:10.2", nginx_version: "1.26.1" },
-          { gcc_image: "gcc:10.2", nginx_version: "1.26.2" },
-          { gcc_image: "gcc:10.2", nginx_version: "1.27.0" },
-          { gcc_image: "gcc:10.2", nginx_version: "1.27.1" },
-          { gcc_image: "gcc:10.2", nginx_version: "1.27.2" },
-        ]
+        gcc_image: ["gcc:10.2", "gcc:12.4", "gcc:13.3"]
+        nginx_version: ["1.25.4", "1.25.5", "1.26.2", "1.27.2"]
     container:
-      image: ${{ matrix.ngx.gcc_image }}
+      image: ${{ matrix.gcc_image }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           ref: "master"
-      - name: Script
+      - name: Compile module
+        id: compile
         run: |
-          export COSMETIC_NGX_DIR=$(pwd)
-          wget --no-verbose -O "nginx.tar.gz" "https://nginx.org/download/nginx-${{ matrix.ngx.nginx_version }}.tar.gz"
+          export COSMETIC_DIR=$(pwd)
+          echo "cosmetic_dir=$COSMETIC_DIR" >> $GITHUB_OUTPUT
+          wget --no-verbose -O "nginx.tar.gz" "https://nginx.org/download/nginx-${{ matrix.nginx_version }}.tar.gz"
           tar -xf nginx.tar.gz
-          cd nginx-${{ matrix.ngx.nginx_version }}
+          cd nginx-${{ matrix.nginx_version }}
           chmod +x configure
-          ./configure --add-module=$COSMETIC_NGX_DIR --with-stream --with-debug --without-http --with-pcre
+          ./configure --add-module=$COSMETIC_DIR --with-stream --with-debug --without-http --with-pcre --with-ld-opt="-lstdc++"
           make
+        shell: bash
+      - name: Compile mcping utility
+        working-directory: ${{ steps.compile.outputs.cosmetic_dir }}
+        env:
+          MCPING_REPO: ${{ secrets.MCPING_REPO }}
+        run: |
+          cd ${{ steps.compile.outputs.cosmetic_dir }}
+          git clone "$MCPING_REPO"
+          cd mcping
+          make
+          cd ..
+          mv mcping/mcping mcping-exec
+          rm -rf mcping
+          mv mcping-exec mcping
+          chmod +x mcping
+        shell: bash
+      - name: Config
+        working-directory: ${{ steps.compile.outputs.cosmetic_dir }}
+        run: |
+          cd ${{ steps.compile.outputs.cosmetic_dir }}
+          cd nginx-${{ matrix.nginx_version }}
+          mkdir -p logs
+          touch logs/access.log
+          touch logs/error.log
+          cat << EOF > conf/nginx.conf
+          user  root;
+          worker_processes  1;
+
+          error_log   logs/error.log  debug;
+
+          events {
+              worker_connections  1024;
+          }
+
+          stream {
+              resolver 1.1.1.1 8.8.8.8 ipv6=off valid=60s;
+
+              minecraft_server_hostname  127.0.0.1  mc.hypixel.net;
+              minecraft_server_hostname  localhost  mc.hypixel.net;
+              minecraft_server_hostname  ilovecatgirls.xyz  mc.hypixel.net;
+              minecraft_server_hostname_replace_on_ping  on;
+              minecraft_server_hostname_disconnect_on_nomatch  off;
+              server {
+                  listen 25565;
+                  proxy_pass  mc.hypixel.net:25565;
+                  minecraft_server_forward on;
+              }
+          }
+          EOF
+          chmod +x objs/nginx
+          objs/nginx -V
+          objs/nginx -p $(pwd) -t
+          objs/nginx -p $(pwd) -g "daemon on;"
+        shell: bash
+      - name: Test
+        working-directory: ${{ steps.compile.outputs.cosmetic_dir }}
+        run: |
+          cd ${{ steps.compile.outputs.cosmetic_dir }}
+          export PING_QUERY_COUNT=60
+          export PING_QUERY_ROUNDWAIT=2
+          declare -i max_query_count=$PING_QUERY_COUNT
+          declare -i i_count=0
+          while [ $i_count -le $max_query_count ]; do
+            i_count+=1
+            if ./mcping --host 127.0.0.1 --protocol 763; then
+              break;
+            elif [[ $i_count -eq $max_query_count ]]; then
+              echo "PING FAILURE."
+              exit 1;
+            fi
+            sleep $PING_QUERY_ROUNDWAIT
+          done
         shell: bash
