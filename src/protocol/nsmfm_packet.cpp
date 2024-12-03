@@ -6,6 +6,7 @@ extern "C"
 #include "nsmfm_packet.hpp"
 #include "nsmfm_varint.hpp"
 #include "../preread/nsmfpm_session.hpp"
+#include "../utils/nsmfm_uuid.hpp"
 
 /*
  Get string length from prefixed varint. Will move `*bufpos`.
@@ -234,6 +235,8 @@ ngx_int_t MinecraftLoginstart::determine_content(ngx_stream_session_t *s, u_char
     MinecraftHandshake       *handshake;
     MinecraftLoginstart      *loginstart;
 
+    MinecraftUUID            *uuid;
+
     c = s->connection;
 
     ctx = (nsmfpm_session_context *) nsmfpm_get_session_context(s);
@@ -291,7 +294,12 @@ cannot_read_username_string:
             return NGX_ERROR;
         }
 
-        // ngx_log_error(NGX_LOG_NOTICE, c->log, 0, "read uuid: %s", loginstart->uuid->content);
+        uuid = MinecraftUUID::create(loginstart->uuid->content);
+
+        ngx_log_error(NGX_LOG_NOTICE, c->log, 0, "read uuid: %s", uuid->literals);
+
+        delete uuid;
+        uuid = nullptr;
     }
     ctx->bufpos = *bufpos;
 
