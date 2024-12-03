@@ -3,7 +3,7 @@ extern "C"
 #include <ngx_core.h>
 #include <ngx_stream.h>
 #include "../main/ngx_stream_minecraft_forward_module.h"
-#include "../utils/nsmfm_protocol_number.h"
+#include "../protocol/nsmfm_protocol_number.h"
 #include "../utils/nsmfm_hostname.h"
 #include "../filter/nsmfcfm_session.h"
 }

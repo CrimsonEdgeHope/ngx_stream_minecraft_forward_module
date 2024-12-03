@@ -1,12 +1,15 @@
 extern "C"
 {
 #include <ngx_core.h>
-#include "../utils/nsmfm_protocol_number.h"
+#include "../protocol/nsmfm_protocol_number.h"
 }
 #include "nsmfm_packet.hpp"
 #include "nsmfm_varint.hpp"
 #include "../preread/nsmfpm_session.hpp"
 
+/*
+ Get string length from prefixed varint. Will move `*bufpos`.
+ */
 ngx_int_t MinecraftString::determine_length(ngx_stream_session_t *s, u_char **bufpos, u_char *buflast) {
     if (bufpos == NULL || buflast == NULL) {
         return NGX_ERROR;
@@ -34,6 +37,9 @@ ngx_int_t MinecraftString::determine_length(ngx_stream_session_t *s, u_char **bu
     return NGX_OK;
 }
 
+/*
+ Get packet content length from prefixed varint. Will move `*bufpos`.
+ */
 ngx_int_t MinecraftPacket::determine_length(ngx_stream_session_t *s, u_char **bufpos, u_char *buflast) {
     if (bufpos == NULL || buflast == NULL) {
         return NGX_ERROR;
@@ -61,6 +67,9 @@ ngx_int_t MinecraftPacket::determine_length(ngx_stream_session_t *s, u_char **bu
     return NGX_OK;
 }
 
+/*
+ Parse string content and copy into `*content`. Will move `*bufpos`.
+ */
 ngx_int_t MinecraftString::determine_content(ngx_stream_session_t *s, u_char **bufpos, u_char *buflast) {
     if (bufpos == NULL || buflast == NULL) {
         return NGX_ERROR;
@@ -90,11 +99,12 @@ ngx_int_t MinecraftString::determine_content(ngx_stream_session_t *s, u_char **b
     return NGX_OK;
 }
 
-ngx_int_t MinecraftPacket::determine_content(ngx_stream_session_t *s, u_char **bufpos, u_char *buflast) {
+/*
+ Locate packet raw binary content and copy into `*content`.
+ Will NOT move `*bufpos` so to parse without moving back pointer again.
+ */
+ngx_int_t MinecraftPacket::determine_content(ngx_stream_session_t *s, u_char *bufpos, u_char *buflast) {
     if (bufpos == NULL || buflast == NULL) {
-        return NGX_ERROR;
-    }
-    if (*bufpos == NULL) {
         return NGX_ERROR;
     }
     
@@ -103,7 +113,7 @@ ngx_int_t MinecraftPacket::determine_content(ngx_stream_session_t *s, u_char **b
         return NGX_ERROR;
     }
 
-    if (buflast - *bufpos < packet_length) {
+    if (buflast - bufpos < packet_length) {
         return NGX_AGAIN;
     }
     
@@ -111,7 +121,7 @@ ngx_int_t MinecraftPacket::determine_content(ngx_stream_session_t *s, u_char **b
     if (!this->content) {
         return NGX_ERROR;
     }
-    ngx_memcpy(this->content, *bufpos, packet_length);
+    ngx_memcpy(this->content, bufpos, packet_length);
 
     
     return NGX_OK;
@@ -134,7 +144,7 @@ ngx_int_t MinecraftHandshake::determine_content(ngx_stream_session_t *s, u_char 
 
     handshake = ctx->handshake;
 
-    rc = ((MinecraftPacket *)handshake)->determine_content(s, bufpos, buflast);
+    rc = ((MinecraftPacket *)handshake)->determine_content(s, *bufpos, buflast);
     if (rc != NGX_OK) {
         return rc;
     }
@@ -231,7 +241,7 @@ ngx_int_t MinecraftLoginstart::determine_content(ngx_stream_session_t *s, u_char
     handshake = ctx->handshake;
     loginstart = ctx->loginstart;
 
-    rc = ((MinecraftPacket *)loginstart)->determine_content(s, bufpos, buflast);
+    rc = ((MinecraftPacket *)loginstart)->determine_content(s, *bufpos, buflast);
     if (rc != NGX_OK) {
         return rc;
     }

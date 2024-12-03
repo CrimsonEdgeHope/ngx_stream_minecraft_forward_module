@@ -82,7 +82,7 @@ public:
     }
 
     ngx_int_t determine_length(ngx_stream_session_t *s, u_char **bufpos, u_char *buflast);
-    ngx_int_t determine_content(ngx_stream_session_t *s, u_char **bufpos, u_char *buflast);
+    ngx_int_t determine_content(ngx_stream_session_t *s, u_char *bufpos, u_char *buflast);
 };
 
 class MinecraftHandshake : public MinecraftPacket {
