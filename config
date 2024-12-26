@@ -44,7 +44,7 @@ NSMFM_SRCS="$NSMFM_MAIN_SRCS $NSMFM_PREREAD_SRCS $NSMFM_FILTER_SRCS $NSMFM_DEP_S
 ngx_addon_name="$NSMFM_MAIN"
 
 ngx_module_type=STREAM
-ngx_module_libs=
+ngx_module_libs=-lstdc++
 
 ngx_module_name=
 ngx_module_incs="$NSMFM_INCS"
@@ -52,6 +52,7 @@ ngx_module_deps="$NSMFM_DEPS"
 ngx_module_srcs="$NSMFM_DEP_SRCS"
 . auto/module
 
+ngx_module_libs=
 ngx_module_incs=
 ngx_module_deps=
 
