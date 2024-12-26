@@ -15,25 +15,31 @@ on:
       - "!.gitignore"
       - "!README.md"
   workflow_dispatch:
-  workflow_call:
+
+
+defaults:
+  run:
+    shell: bash
 
 
 jobs:
   compile:
-    name: Compile ${{ matrix.nginx_version }} (${{ matrix.gcc_image }})
-    runs-on: ubuntu-22.04
+    name: Compile ${{ matrix.nginx_version }} (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
-        gcc_image: ["gcc:10.2", "gcc:12.4", "gcc:13.3"]
+        os: ["ubuntu-20.04", "ubuntu-22.04", "ubuntu-24.04"]
         nginx_version: ["1.25.4", "1.25.5", "1.26.2", "1.27.2"]
-    container:
-      image: ${{ matrix.gcc_image }}
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           ref: "master"
+      - name: Setup
+        run: |
+          sudo apt-get update
+          sudo apt-get -y install build-essential make
       - name: Compile module
         id: compile
         run: |
@@ -45,8 +51,7 @@ jobs:
           chmod +x configure
           ./configure --add-module=$COSMETIC_DIR --with-stream --with-debug --without-http --with-pcre --with-ld-opt="-lstdc++"
           make
-        shell: bash
-      - name: Compile mcping utility
+      - name: Compile mcping
         working-directory: ${{ steps.compile.outputs.cosmetic_dir }}
         env:
           MCPING_REPO: ${{ secrets.MCPING_REPO }}
@@ -60,8 +65,7 @@ jobs:
           rm -rf mcping
           mv mcping-exec mcping
           chmod +x mcping
-        shell: bash
-      - name: Config
+      - name: Setup Nginx config
         working-directory: ${{ steps.compile.outputs.cosmetic_dir }}
         run: |
           cd ${{ steps.compile.outputs.cosmetic_dir }}
@@ -98,8 +102,7 @@ jobs:
           objs/nginx -V
           objs/nginx -p $(pwd) -t
           objs/nginx -p $(pwd) -g "daemon on;"
-        shell: bash
-      - name: Test
+      - name: Test pinging
         working-directory: ${{ steps.compile.outputs.cosmetic_dir }}
         run: |
           cd ${{ steps.compile.outputs.cosmetic_dir }}
@@ -117,4 +120,12 @@ jobs:
             fi
             sleep $PING_QUERY_ROUNDWAIT
           done
-        shell: bash
+      - name: Upload artifacts
+        uses: CrimsonEdgeHope/upload-artifact-action@81f940d004763f986ba3582c007fd842dd5cb0d7
+        if: ${{ always() }}
+        with:
+          name: ${{ github.run_id }}-${{ matrix.os }}-nginx-${{ matrix.nginx_version }}
+          path: ${{ steps.compile.outputs.cosmetic_dir }}/nginx-${{ matrix.nginx_version }}
+          retention-days: 3
+          overwrite: true
+        continue-on-error: true
